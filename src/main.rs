@@ -1,4 +1,5 @@
 mod cli;
+mod lexer;
 mod profile;
 mod steps;
 
