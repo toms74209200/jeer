@@ -6,6 +6,7 @@ use args::Invocation;
 pub enum Outcome {
     Unchanged(String),
     Changed(String),
+    Rejected(String),
     Usage(String),
     Internal(String),
 }
@@ -21,6 +22,7 @@ impl From<Outcome> for Response {
         let (stdout, stderr, code) = match outcome {
             Outcome::Unchanged(text) => (text, String::new(), 0),
             Outcome::Changed(text) => (text, String::new(), 1),
+            Outcome::Rejected(message) => (String::new(), message, 2),
             Outcome::Usage(message) => (String::new(), message, 4),
             Outcome::Internal(message) => (String::new(), message, 3),
         };
@@ -36,11 +38,18 @@ pub fn run(args: &[String], input: &[u8]) -> Outcome {
     match args::parse(args) {
         Ok(Invocation::FormatStdin(profile)) => {
             let source = String::from_utf8_lossy(input);
-            let formatted = profile.format(&source);
-            if formatted.as_bytes() == input {
-                Outcome::Unchanged(formatted)
-            } else {
-                Outcome::Changed(formatted)
+            match profile.format(&source) {
+                Ok(formatted) if formatted.as_bytes() == input => Outcome::Unchanged(formatted),
+                Ok(formatted) => Outcome::Changed(formatted),
+                Err(rejection) => {
+                    let before = &source[..rejection.offset];
+                    let line = before.matches('\n').count() + 1;
+                    let column = before
+                        .rfind('\n')
+                        .map_or(before.chars().count(), |n| before[n + 1..].chars().count())
+                        + 1;
+                    Outcome::Rejected(format!("jeer: {line}:{column}: {}\n", rejection.message))
+                }
             }
         }
         Err(error) => Outcome::Usage(format!("jeer: {error}\n{}\n", args::USAGE)),
@@ -56,6 +65,7 @@ mod tests {
         let cases = [
             (Outcome::Unchanged("a\n".to_owned()), ("a\n", "", 0)),
             (Outcome::Changed("b\n".to_owned()), ("b\n", "", 1)),
+            (Outcome::Rejected("bad\n".to_owned()), ("", "bad\n", 2)),
             (Outcome::Usage("usage\n".to_owned()), ("", "usage\n", 4)),
             (Outcome::Internal("broke\n".to_owned()), ("", "broke\n", 3)),
         ];
@@ -93,6 +103,24 @@ mod tests {
             let outcome = run(&args, input.as_bytes());
 
             assert_eq!(outcome, expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn when_run_with_input_the_profile_rejects_then_returns_rejected_with_line_and_column() {
+        let cases = [
+            ("class A {\n  /* open", "jeer: 2:3: unclosed comment\n"),
+            ("é # x", "jeer: 1:3: illegal character\n"),
+        ];
+        for (input, message) in cases {
+            let args: Vec<String> = ["--stdin", "--profile", "lexer-roundtrip"]
+                .iter()
+                .map(|a| (*a).to_owned())
+                .collect();
+
+            let outcome = run(&args, input.as_bytes());
+
+            assert_eq!(outcome, Outcome::Rejected(message.to_owned()), "{input:?}");
         }
     }
 
