@@ -1,7 +1,7 @@
 #!/bin/bash
 set -u
 
-threshold=90
+threshold=95
 [ $# -eq 1 ] || { echo "usage: judge-small-test-coverage.sh <lcov>" >&2; exit 2; }
 root=$(git rev-parse --show-toplevel) || exit 2
 [ -r "$1" ] || { echo "judge-small-test-coverage: cannot read $1" >&2; exit 2; }

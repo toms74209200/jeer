@@ -19,14 +19,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock', 'scripts/ast-grep.sh', 'scripts/cargo-llvm-cov.sh') }}
       - name: Run small tests with coverage
         run: scripts/test-small.sh
-      - name: Judge coverage
-        run: |
-          scripts/judge-small-test-coverage.sh out/small.lcov | tee coverage.txt
-          status=${PIPESTATUS[0]}
-          {
-            echo "# Small-test coverage"
-            echo '```'
-            cat coverage.txt
-            echo '```'
-          } >> $GITHUB_STEP_SUMMARY
-          exit $status
+      - uses: actions/upload-artifact@v7
+        with:
+          name: small-cover
+          path: out/small.lcov
