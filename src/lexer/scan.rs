@@ -1,17 +1,23 @@
+use super::identifier_table;
 use super::token::{LexErrorKind, PUNCTS, TokenKind, WORDS};
 
 type Scanned = Result<(TokenKind, usize), LexErrorKind>;
 
 pub fn next_token(chars: &[char], start: usize) -> Scanned {
     let at = |i: usize| chars.get(i).copied();
-    let identifier_start = |c: char| {
-        c.is_ascii_alphabetic() || c == '_' || c == '$' || (!c.is_ascii() && !c.is_whitespace())
+    let within = |table: &[(u32, u32)], c: char| {
+        table
+            .binary_search_by(
+                |&(low, high)| match (high < u32::from(c), low > u32::from(c)) {
+                    (true, _) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                    (false, false) => std::cmp::Ordering::Equal,
+                },
+            )
+            .is_ok()
     };
-    let identifier_part = |c: char| {
-        identifier_start(c)
-            || c.is_ascii_digit()
-            || matches!(c, '\u{0}'..='\u{8}' | '\u{e}'..='\u{1b}' | '\u{7f}')
-    };
+    let identifier_start = |c: char| within(identifier_table::START, c);
+    let identifier_part = |c: char| within(identifier_table::PART, c);
     match chars[start] {
         ' ' | '\t' | '\u{c}' => {
             let end = (start..chars.len())

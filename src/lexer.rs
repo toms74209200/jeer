@@ -1,3 +1,4 @@
+mod identifier_table;
 mod scan;
 pub mod token;
 mod unicode_escapes;
@@ -46,6 +47,12 @@ mod tests {
             ("yield", TokenKind::Identifier),
             ("_x", TokenKind::Identifier),
             ("名前", TokenKind::Identifier),
+            ("αβγ", TokenKind::Identifier),
+            ("€uro", TokenKind::Identifier),
+            ("e\u{301}", TokenKind::Identifier),
+            ("a\u{200b}b", TokenKind::Identifier),
+            ("x\u{7f}", TokenKind::Identifier),
+            ("𝑥", TokenKind::Identifier),
             ("class", TokenKind::Keyword(Keyword::Class)),
             ("_", TokenKind::Keyword(Keyword::Underscore)),
             ("true", TokenKind::True),
@@ -318,6 +325,10 @@ mod tests {
             ("\"\"\" x\"\"\"", LexErrorKind::IllegalTextBlockOpen, 0),
             ("\"\"\"\n\\x\"\"\"", LexErrorKind::IllegalEscape, 0),
             ("a # b", LexErrorKind::IllegalCharacter, 2),
+            ("•", LexErrorKind::IllegalCharacter, 0),
+            ("a → b", LexErrorKind::IllegalCharacter, 2),
+            ("\u{301}a", LexErrorKind::IllegalCharacter, 0),
+            ("\u{3000}", LexErrorKind::IllegalCharacter, 0),
             ("\\u12", LexErrorKind::IllegalUnicodeEscape, 0),
             ("1_", LexErrorKind::IllegalUnderscore, 0),
             ("0x_1", LexErrorKind::IllegalUnderscore, 0),
