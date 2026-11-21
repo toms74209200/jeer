@@ -1,16 +1,37 @@
 use crate::lexer;
+use crate::parser;
 use crate::steps;
+use crate::steps::line_endings::UnixText;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Profile {
     Whitespace,
     LexerRoundtrip,
+    CstRoundtrip,
+    Gjf,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Rejection {
-    pub offset: usize,
+    pub line: usize,
+    pub column: usize,
     pub message: String,
+}
+
+impl Rejection {
+    fn at(text: &str, offset: usize, message: String) -> Rejection {
+        let before = &text[..offset];
+        let line = before.matches('\n').count() + 1;
+        let column = before
+            .rfind('\n')
+            .map_or(before.chars().count(), |n| before[n + 1..].chars().count())
+            + 1;
+        Rejection {
+            line,
+            column,
+            message,
+        }
+    }
 }
 
 impl std::str::FromStr for Profile {
@@ -20,6 +41,8 @@ impl std::str::FromStr for Profile {
         match name {
             "whitespace" => Ok(Profile::Whitespace),
             "lexer-roundtrip" => Ok(Profile::LexerRoundtrip),
+            "cst-roundtrip" => Ok(Profile::CstRoundtrip),
+            "gjf" => Ok(Profile::Gjf),
             other => Err(format!("unknown profile: {other}")),
         }
     }
@@ -33,19 +56,27 @@ impl Profile {
                     steps::trim_trailing_whitespace::apply,
                     steps::end_with_newline::apply,
                 ];
-                let unix = if source.contains("\r\n") {
-                    source.replace('\r', "")
-                } else {
-                    source.replace('\r', "\n")
-                };
+                let unix = String::from(UnixText::from(source));
                 Ok(steps.iter().fold(unix, |text, step| step(&text)))
             }
             Profile::LexerRoundtrip => {
-                let tokens = lexer::scan(source).map_err(|e| Rejection {
-                    offset: e.offset,
-                    message: e.kind.to_string(),
-                })?;
+                let tokens = lexer::scan(source)
+                    .map_err(|e| Rejection::at(source, e.offset, e.kind.to_string()))?;
                 Ok(tokens.iter().map(|t| &source[t.start..t.end]).collect())
+            }
+            Profile::CstRoundtrip => {
+                let tree = parser::parse(source)
+                    .map_err(|e| Rejection::at(source, e.offset, e.message))?;
+                Ok(tree
+                    .tokens()
+                    .iter()
+                    .map(|t| &source[t.start..t.end])
+                    .collect())
+            }
+            Profile::Gjf => {
+                let unix = String::from(UnixText::from(source));
+                parser::parse(&unix).map_err(|e| Rejection::at(&unix, e.offset, e.message))?;
+                Ok(unix)
             }
         }
     }
@@ -81,7 +112,8 @@ mod tests {
             (
                 "class A { /* open",
                 Err(Rejection {
-                    offset: 10,
+                    line: 1,
+                    column: 11,
                     message: "unclosed comment".to_owned(),
                 }),
             ),
@@ -94,11 +126,47 @@ mod tests {
     }
 
     #[test]
+    fn when_format_with_cst_roundtrip_then_returns_the_source_or_the_syntax_error() {
+        let cases = [
+            (
+                "class A {\r\n  int x; // c\r\n}",
+                Ok("class A {\r\n  int x; // c\r\n}".to_owned()),
+            ),
+            ("class A { int x = 1 }", Err((1, 21))),
+        ];
+        for (source, expected) in cases {
+            let formatted = Profile::CstRoundtrip
+                .format(source)
+                .map_err(|r| (r.line, r.column));
+
+            assert_eq!(formatted, expected, "{source:?}");
+        }
+    }
+
+    #[test]
+    fn when_format_with_gjf_then_returns_unix_text_of_valid_input_or_the_syntax_error() {
+        let cases = [
+            ("class A {}\r\n", Ok("class A {}\n".to_owned())),
+            ("class A {}\r", Ok("class A {}\n".to_owned())),
+            ("class A {", Err((1, 10))),
+            ("class A {\r\nvoid é;\r\n}\r\n", Err((2, 7))),
+            ("class A {\r\n\r\n\r\n  int x = 1 }", Err((4, 13))),
+        ];
+        for (source, expected) in cases {
+            let formatted = Profile::Gjf.format(source).map_err(|r| (r.line, r.column));
+
+            assert_eq!(formatted, expected, "{source:?}");
+        }
+    }
+
+    #[test]
     fn when_from_str_with_a_name_then_returns_its_profile_or_an_error() {
         let cases = [
             ("whitespace", Ok(Profile::Whitespace)),
             ("lexer-roundtrip", Ok(Profile::LexerRoundtrip)),
-            ("gjf", Err("unknown profile: gjf".to_owned())),
+            ("cst-roundtrip", Ok(Profile::CstRoundtrip)),
+            ("gjf", Ok(Profile::Gjf)),
+            ("palantir", Err("unknown profile: palantir".to_owned())),
         ];
         for (name, expected) in cases {
             let profile = name.parse::<Profile>();

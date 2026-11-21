@@ -23,6 +23,7 @@ pub enum TokenKind {
     StringLiteral,
     TextBlock,
     Punct(Punct),
+    Eof,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +79,35 @@ pub enum Keyword {
     Volatile,
     While,
     Underscore,
+}
+
+pub enum TokenClass {
+    Trivia,
+    Significant,
+}
+
+impl TokenKind {
+    pub fn class(self) -> TokenClass {
+        match self {
+            TokenKind::Whitespace
+            | TokenKind::Newline
+            | TokenKind::LineComment
+            | TokenKind::BlockComment
+            | TokenKind::JavadocComment => TokenClass::Trivia,
+            TokenKind::Identifier
+            | TokenKind::Keyword(_)
+            | TokenKind::True
+            | TokenKind::False
+            | TokenKind::Null
+            | TokenKind::IntegerLiteral
+            | TokenKind::FloatingLiteral
+            | TokenKind::CharLiteral
+            | TokenKind::StringLiteral
+            | TokenKind::TextBlock
+            | TokenKind::Punct(_)
+            | TokenKind::Eof => TokenClass::Significant,
+        }
+    }
 }
 
 pub const WORDS: [(&str, TokenKind); 54] = [
