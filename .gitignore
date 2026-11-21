@@ -1,0 +1,7 @@
+/target
+/out
+/oracle/.gradle
+/oracle/build
+/oracle/work
+/.hootl
+/.claude/settings.local.json

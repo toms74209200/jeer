@@ -1,0 +1,19 @@
+name: Job - Fixtures against the oracle
+
+on:
+  workflow_call:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+          cache-dependency-path: oracle/*.gradle.kts
+      - name: Check expected outputs are the oracle's
+        run: scripts/check-fixtures-oracle.sh

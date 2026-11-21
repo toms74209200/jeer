@@ -1,0 +1,2 @@
+# <kind> <crate> <reason>
+# kind is normal, dev or build. Changing this list goes through human review (shampoo ask).

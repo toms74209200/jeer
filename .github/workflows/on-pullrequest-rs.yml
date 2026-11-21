@@ -1,0 +1,34 @@
+name: On Pull Request (Rust)
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '**.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'sgconfig.yml'
+      - 'sg/**'
+      - 'scripts/**'
+      - 'tests/fixtures/**'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    uses: ./.github/workflows/job-lint.yml
+    permissions:
+      contents: write
+  small-test:
+    uses: ./.github/workflows/job-test-small.yml
+  fixtures:
+    needs: [small-test]
+    uses: ./.github/workflows/job-test-fixtures.yml

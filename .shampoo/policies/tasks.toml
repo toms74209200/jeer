@@ -1,0 +1,6 @@
+text = '''
+Tasks are the files in tasks/, taken in the order of their names. A task
+that turns out too large for one reviewable PR is split: do the first part,
+and in the same PR add task files for the rest, named so they sort right
+after it, each with its own "Done when". A finding outside the task, such
+as a mismatch class for later, becomes a task file in the PR, not a change.'''

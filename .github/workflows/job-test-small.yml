@@ -1,0 +1,32 @@
+name: Job - Test Small
+
+on:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            out/tools
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock', 'scripts/ast-grep.sh', 'scripts/cargo-llvm-cov.sh') }}
+      - name: Run small tests with coverage
+        run: scripts/test-small.sh
+      - name: Judge coverage
+        run: |
+          scripts/judge-small-test-coverage.sh out/small.lcov | tee coverage.txt
+          status=${PIPESTATUS[0]}
+          {
+            echo "# Small-test coverage"
+            echo '```'
+            cat coverage.txt
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY
+          exit $status

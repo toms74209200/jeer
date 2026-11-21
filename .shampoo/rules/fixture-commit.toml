@@ -1,0 +1,4 @@
+rule = "A commit that changes fixtures changes no production code, except deleting skip markers; a skip marker is added only with its new fixture (docs/development.md §8.4)."
+check = "fixture-commit"
+transitions = ["pr"]
+judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

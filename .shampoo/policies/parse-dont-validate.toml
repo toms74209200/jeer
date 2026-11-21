@@ -1,0 +1,30 @@
+review = true
+text = '''
+Recognize it by: input from outside the program (arguments, config, source text).
+
+Write it as: at the boundary where the input enters, parse it into a
+value of its own type, which says it is valid. Inside the boundary, pass
+that type, not the raw input, and do not check it again.
+
+Instead of:
+```rust
+fn indent_width(s: &str) -> usize { s.parse().unwrap_or(2) }
+if width > 0 && width <= 16 { ... }
+```
+
+Tests no longer needed: every caller's re-check of the range.'''
+example = '''
+```rust
+pub struct IndentWidth(u8);
+
+impl std::str::FromStr for IndentWidth {
+    type Err = ConfigError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.parse::<u8>() {
+            Ok(n @ 1..=16) => Ok(IndentWidth(n)),
+            _ => Err(ConfigError::IndentWidth(s.to_owned())),
+        }
+    }
+}
+```
+The field is private, so only the parse makes an `IndentWidth`.'''

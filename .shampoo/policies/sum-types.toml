@@ -1,0 +1,38 @@
+review = true
+text = '''
+Every branch is a test to write. When the code you are writing looks like
+this, write it as in the example instead.
+
+Recognize it by: a later step inspects a value decided by an earlier step,
+to choose its own behavior; or a struct of optional fields where only some
+combinations are valid.
+
+Write it as: the earlier step returns the behavior itself, as a value of an
+enum or as a function, and the later step applies it with an exhaustive
+`match`. No `_ =>` arm over an enum of our own: the compiler then checks
+that every case is covered.
+
+Instead of:
+```rust
+struct Outcome { changed: bool, error: Option<String>, output: Option<String> }
+if o.error.is_some() { return 2; }
+if o.changed { return 1; }
+0
+```
+
+Tests no longer needed: the combinations that cannot occur, such as an
+error with an output.'''
+example = '''
+```rust
+pub enum Outcome {
+    Unchanged,
+    Changed(String),
+    Rejected(SyntaxError),
+}
+
+let code = match outcome {
+    Outcome::Unchanged => 0,
+    Outcome::Changed(_) => 1,
+    Outcome::Rejected(_) => 2,
+};
+```'''

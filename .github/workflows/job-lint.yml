@@ -1,0 +1,55 @@
+name: Job - Lint
+
+on:
+  workflow_call:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            out/tools
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock', 'scripts/ast-grep.sh', 'scripts/cargo-llvm-cov.sh') }}
+      - name: Apply formatter
+        run: cargo fmt --all
+      - name: Commit formatted code
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am ":art: Apply rustfmt"
+          git push
+      - name: Run linter
+        run: scripts/lint.sh
+      - name: Check dependencies
+        run: scripts/check-dependencies.sh
+      - name: Check comments
+        run: scripts/check-sg.sh comments
+      - name: Check prohibited functions
+        run: scripts/check-sg.sh functions
+      - name: Check test names
+        run: scripts/check-sg.sh test-names
+      - name: Check test helpers
+        run: scripts/check-sg.sh test-helpers
+      - name: Check exceptions
+        run: scripts/check-sg.sh exceptions
+      - name: Report exceptions
+        run: |
+          echo "## Lint exceptions (limit 3)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat out/exceptions/lint.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          [ "$(wc -l < out/exceptions/lint.txt)" -le 3 ]

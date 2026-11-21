@@ -1,0 +1,19 @@
+id: exceptions
+language: Rust
+severity: error
+message: The only exception is `#[expect(<lint>, reason = "<reason>")]`; `allow`, `rustfmt::skip` and `expect` without a reason are prohibited.
+files:
+  - src/**/*.rs
+  - tests/**/*.rs
+  - tools/**/*.rs
+rule:
+  any:
+    - kind: attribute_item
+      regex: ^#\[(allow|rustfmt::skip|cfg_attr)
+    - kind: inner_attribute_item
+      regex: ^#!\[(allow|expect|rustfmt::skip|cfg_attr)
+    - all:
+        - kind: attribute_item
+          regex: ^#\[expect\(
+        - not:
+            regex: reason\s*=\s*"[^"]+"

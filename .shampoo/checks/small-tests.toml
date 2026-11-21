@@ -1,0 +1,2 @@
+command = "scripts/test-small.sh"
+size = "small"

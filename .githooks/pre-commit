@@ -1,0 +1,18 @@
+#!/bin/sh
+set -u
+
+tree=$(mktemp -d) || exit 1
+staged=$(mktemp) || exit 1
+trap 'git worktree remove --force "$tree" >/dev/null 2>&1; rm -rf "$tree" "$staged"' EXIT
+git diff --cached --binary > "$staged" || exit 1
+unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
+git worktree add --quiet --detach "$tree" HEAD || exit 1
+git -C "$tree" apply --index --allow-empty "$staged" || {
+	echo "pre-commit: cannot apply the staged changes to a clean tree" >&2
+	exit 1
+}
+root=$(git rev-parse --show-toplevel)
+[ -d "$root/out/tools" ] && mkdir -p "$tree/out" && cp -r "$root/out/tools" "$tree/out/tools"
+CARGO_TARGET_DIR="$root/out/pre-commit-target" "$tree/scripts/check-small.sh" && exit 0
+echo "pre-commit: checks failed on what is staged; every commit must pass them on its own (docs/development.md §8.2)" >&2
+exit 1

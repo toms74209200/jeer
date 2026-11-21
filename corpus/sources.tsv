@@ -1,0 +1,7 @@
+# name	role	url	commit	include
+guava	dev	https://github.com/google/guava	36e3995499d6c3b74b1207d362fa9e19915d2589	*.java
+commons-lang	dev	https://github.com/apache/commons-lang	9e224bc34f8003041375d207be859b951ce505b4	*.java
+google-java-format	dev	https://github.com/google/google-java-format	246202f548df50e63159e95912d42ddb5411a93a	*.java *.input
+jdk-java-base	dev	https://github.com/openjdk/jdk	78bf06f425a99c26dbbc39b81aecf0912a50190b	/src/java.base/share/classes/java/
+junit-framework	holdout	https://github.com/junit-team/junit-framework	d5bb51782c9c66addfdecb22b9cd7cdd1609f57b	*.java
+commons-collections	holdout	https://github.com/apache/commons-collections	2bcf69296bbde598b1e8bac1b3cd90a11ef3e563	*.java

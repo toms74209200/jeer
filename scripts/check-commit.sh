@@ -1,0 +1,96 @@
+#!/bin/sh
+set -u
+
+EMOJIS='
+:sparkles:           new feature
+:bug:                bug fix
+:recycle:            refactoring
+:art:                code structure or format
+:white_check_mark:   tests
+:memo:               documentation
+:hammer:             development scripts and tooling
+:construction_worker: CI
+:rotating_light:     linter config or lint fixes
+:see_no_evil:        .gitignore
+:wrench:             configuration
+:heavy_plus_sign:    add a dependency
+:heavy_minus_sign:   remove a dependency
+:arrow_up:           upgrade a dependency
+:fire:               remove code or files
+:truck:              move or rename
+:zap:                performance
+:pencil2:            typo
+:rewind:             revert
+'
+
+VERBS='Add Change Update Bump bump Fix Remove Rename Move Refactor Clean Replace Apply Revert'
+
+workflow_failure() {
+	echo "check-commit: $1" >&2
+	exit 2
+}
+
+case "${1:-}" in
+--msg-file)
+	[ $# -eq 2 ] || workflow_failure "usage: check-commit.sh --msg-file <file>"
+	[ -r "$2" ] || workflow_failure "cannot read message file: $2"
+	msg=$(git stripspace --strip-comments <"$2") || workflow_failure "git stripspace failed"
+	;;
+--rev)
+	[ $# -eq 2 ] || workflow_failure "usage: check-commit.sh --rev <rev>"
+	msg=$(git log -1 --format=%B "$2") || workflow_failure "cannot read commit: $2"
+	;;
+*)
+	workflow_failure "usage: check-commit.sh --msg-file <file> | --rev <rev>"
+	;;
+esac
+
+violations=''
+violate() {
+	violations="${violations}
+- $1"
+}
+
+subject=$(printf '%s\n' "$msg" | sed -n '1p')
+second=$(printf '%s\n' "$msg" | sed -n '2p')
+
+emoji=$(printf '%s' "$subject" | sed -n 's/^\(:[a-z0-9_]*:\) .*/\1/p')
+verb=$(printf '%s' "$subject" | sed -n 's/^:[a-z0-9_]*: \([^ ]*\) .*/\1/p')
+
+if [ -z "$emoji" ] || [ -z "$verb" ]; then
+	violate "subject must be \":<gitmoji>: <Verb> <what>\", got: \"$subject\" (§8.2)"
+else
+	if ! printf '%s\n' "$EMOJIS" | grep -q "^$emoji "; then
+		violate "emoji $emoji is not allowed (§8.3); use one of:
+$(printf '%s' "$EMOJIS" | sed '/^$/d; s/^/    /')"
+	fi
+	case " $VERBS " in
+	*" $verb "*) ;;
+	*) violate "verb \"$verb\" is not allowed (§8.3); start with an imperative verb from: $VERBS" ;;
+	esac
+fi
+
+if [ "${#subject}" -gt 72 ]; then
+	violate "subject is ${#subject} characters; keep it at most 72 (§8.2)"
+fi
+case "$subject" in
+*.) violate "subject must not end with a period (§8.2)" ;;
+esac
+
+prose=$(printf '%s' "$subject" | sed 's/`[^`]*`//g')
+if printf '%s' "$prose" | grep -qiE '(^|[^[:alnum:]_-])and([^[:alnum:]_-]|$)|[,&]'; then
+	violate "subject joins changes with \"and\", \",\" or \"&\"; split the commit, or rephrase if it is one change (§8.2)"
+fi
+
+if printf '%s\n' "$msg" | grep -qiE '\[(skip ci|ci skip|no ci|skip actions|actions skip)\]|^skip-checks: *true'; then
+	violate "message must not skip CI; remove \"[skip ci]\" or \"skip-checks: true\" (§8.2)"
+fi
+
+if [ -n "$second" ]; then
+	violate "separate the subject from the body with a blank line (§8.2)"
+fi
+
+if [ -n "$violations" ]; then
+	echo "commit rule violations (sections refer to docs/development.md):$violations" >&2
+	exit 1
+fi

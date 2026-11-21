@@ -1,0 +1,5 @@
+rule = "Every test is named `when_<target>_with_<given conditions>_then_returns_<expected>`."
+check = "test-names"
+transitions = ["edit", "task", "pr"]
+paths = ["**.rs", "sg/rules/test-names.yml", "scripts/check-sg.sh", "scripts/ast-grep.sh"]
+judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

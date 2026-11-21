@@ -1,0 +1,16 @@
+id: test-names
+language: Rust
+severity: error
+message: Every test is named `when_<target>_with_<given conditions>_then_returns_<expected>`.
+files:
+  - src/**/*.rs
+  - tests/**/*.rs
+rule:
+  kind: function_item
+  follows:
+    kind: attribute_item
+    regex: ^#\[test\]$
+  has:
+    field: name
+    not:
+      regex: ^when_[a-z0-9_]+_with_[a-z0-9_]+_then_returns_[a-z0-9_]+$
