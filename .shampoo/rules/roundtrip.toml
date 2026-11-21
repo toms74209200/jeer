@@ -1,0 +1,5 @@
+rule = "Every dev corpus file lexes without error and its tokens reproduce it byte for byte (`--profile lexer-roundtrip`)."
+check = "roundtrip"
+transitions = ["task"]
+paths = ["**.rs", "Cargo.toml", "Cargo.lock", "corpus/**", "scripts/check-roundtrip.sh", "scripts/fetch-corpus.sh"]
+judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }
