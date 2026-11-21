@@ -7,6 +7,8 @@ files:
   - tests/**/*.rs
   - benches/**/*.rs
   - tools/**/*.rs
+ignores:
+  - tools/**/ui/**
 rule:
   any:
     - kind: line_comment

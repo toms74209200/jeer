@@ -6,6 +6,8 @@ files:
   - src/**/*.rs
   - tests/**/*.rs
   - tools/**/*.rs
+ignores:
+  - tools/**/ui/**
 rule:
   any:
     - kind: attribute_item
