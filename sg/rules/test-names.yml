@@ -5,6 +5,8 @@ message: Every test is named `when_<target>_with_<given conditions>_then_returns
 files:
   - src/**/*.rs
   - tests/**/*.rs
+ignores:
+  - tools/**/ui/**
 rule:
   kind: function_item
   follows:

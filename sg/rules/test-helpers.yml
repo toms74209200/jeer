@@ -5,6 +5,8 @@ message: Test helpers are prohibited; a test module declares only `#[test]` func
 files:
   - src/**/*.rs
   - tests/**/*.rs
+ignores:
+  - tools/**/ui/**
 rule:
   kind: function_item
   inside:

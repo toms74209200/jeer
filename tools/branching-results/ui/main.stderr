@@ -1,0 +1,83 @@
+warning: the caller branches on a `bool` result to recover a fact the function had established
+  --> $DIR/main.rs:54:8
+   |
+LL |     if valid(s) {}
+   |        ^^^^^^^^
+   |
+   = help: return the fact as a type (an enum or a type only a parse function makes) and match on it
+   = note: `#[warn(branching_results)]` on by default
+
+warning: the caller branches on a `bool` result to recover a fact the function had established
+  --> $DIR/main.rs:55:9
+   |
+LL |     if !valid(s) && t.is_keyword() {}
+   |         ^^^^^^^^
+   |
+   = help: return the fact as a type (an enum or a type only a parse function makes) and match on it
+
+warning: the caller branches on a `bool` result to recover a fact the function had established
+  --> $DIR/main.rs:55:21
+   |
+LL |     if !valid(s) && t.is_keyword() {}
+   |                     ^^^^^^^^^^^^^^
+   |
+   = help: return the fact as a type (an enum or a type only a parse function makes) and match on it
+
+warning: the caller branches on a `bool` result to recover a fact the function had established
+  --> $DIR/main.rs:56:11
+   |
+LL |     while valid(s) {
+   |           ^^^^^^^^
+   |
+   = help: return the fact as a type (an enum or a type only a parse function makes) and match on it
+
+warning: the caller branches on a `bool` result to recover a fact the function had established
+  --> $DIR/main.rs:59:11
+   |
+LL |     match valid(s) {
+   |           ^^^^^^^^
+   |
+   = help: return the fact as a type (an enum or a type only a parse function makes) and match on it
+
+warning: the caller branches on a `bool` result to recover a fact the function had established
+  --> $DIR/main.rs:64:16
+   |
+LL |         "a" if t.is_keyword() => {}
+   |                ^^^^^^^^^^^^^^
+   |
+   = help: return the fact as a type (an enum or a type only a parse function makes) and match on it
+
+warning: the caller reduces an `Option` or `Result` to `bool` to recover a fact the function had established
+  --> $DIR/main.rs:67:13
+   |
+LL |     let _ = find(s).is_some();
+   |             ^^^^^^^
+   |
+   = help: return the fact as a type (an enum or a type only a parse function makes) and match on it
+
+warning: the caller reduces an `Option` or `Result` to `bool` to recover a fact the function had established
+  --> $DIR/main.rs:68:13
+   |
+LL |     let _ = parse(s).is_err();
+   |             ^^^^^^^^
+   |
+   = help: return the fact as a type (an enum or a type only a parse function makes) and match on it
+
+warning: the caller compares a result to recover a fact the function had established
+  --> $DIR/main.rs:69:13
+   |
+LL |     let _ = find(s) == None;
+   |             ^^^^^^^
+   |
+   = help: return the fact as a type (an enum or a type only a parse function makes) and match on it
+
+warning: the caller compares a result to recover a fact the function had established
+  --> $DIR/main.rs:70:13
+   |
+LL |     let _ = valid(s) != true;
+   |             ^^^^^^^^
+   |
+   = help: return the fact as a type (an enum or a type only a parse function makes) and match on it
+
+warning: 10 warnings emitted
+

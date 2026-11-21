@@ -5,6 +5,8 @@ message: A function whose body is a single expression or statement, other than a
 files:
   - src/**/*.rs
   - tools/**/*.rs
+ignores:
+  - tools/**/ui/**
 rule:
   kind: function_item
   has:

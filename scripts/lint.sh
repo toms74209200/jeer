@@ -16,4 +16,9 @@ grep -rnE '#!?\[expect\(' --include='*.rs' "${dirs[@]}" >out/exceptions/lint.txt
 result=0
 cargo fmt --all --check || result=1
 cargo clippy --quiet --all-targets --all-features -- -D warnings || result=1
+dylint_bin=$(scripts/dylint.sh --bin-dir) || exit 2
+for tool in tools/*/Cargo.toml; do
+	[ -e "$tool" ] || continue
+	(cd "$(dirname "$tool")" && PATH="$dylint_bin:$PATH" cargo fmt --check && PATH="$dylint_bin:$PATH" cargo clippy --quiet -- -D warnings) || result=1
+done
 exit $result
