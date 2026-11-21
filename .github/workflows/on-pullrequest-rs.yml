@@ -11,6 +11,7 @@ on:
       - 'rust-toolchain.toml'
       - 'sgconfig.yml'
       - 'sg/**'
+      - 'tools/**'
       - 'scripts/**'
       - 'tests/fixtures/**'
       - '.github/workflows/**'
@@ -27,6 +28,8 @@ jobs:
     uses: ./.github/workflows/job-lint.yml
     permissions:
       contents: write
+  branching-results:
+    uses: ./.github/workflows/job-lint-branching-results.yml
   small-test:
     uses: ./.github/workflows/job-test-small.yml
   fixtures:
