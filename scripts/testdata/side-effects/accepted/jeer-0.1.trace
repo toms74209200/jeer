@@ -1,0 +1,14 @@
+10 execve("/repo/target/llvm-cov-target/debug/deps/jeer-0", ["/repo/target/llvm-cov-target/debug/deps/jeer-0"], 0x7ffc /* 68 vars */) = 0
+10 access("/etc/ld.so.preload", R_OK) = -1 ENOENT (No such file or directory)
+10 openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
+10 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 3
+10 openat(AT_FDCWD, "/usr/local/rustup/toolchains/1.100.0-x86_64-unknown-linux-gnu/lib/libgcc_s.so.1", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+10 openat(AT_FDCWD, "/proc/self/maps", O_RDONLY|O_CLOEXEC) = 3
+10 openat(AT_FDCWD, "/sys/fs/cgroup/cpu.max", O_RDONLY|O_CLOEXEC) = 3
+10 openat(AT_FDCWD, "/usr/share/terminfo/d/dumb", O_RDONLY|O_CLOEXEC) = 3
+10 statx(3, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_BASIC_STATS}) = 0
+10 clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS, exit_signal=0}, 88) = 11
+10 openat(AT_FDCWD, "/tmp/jeer-test-1/input.java", O_RDONLY|O_CLOEXEC) = 3
+10 mkdir("/repo", 0755) = -1 EEXIST (File exists)
+10 openat(AT_FDCWD, "/repo/target/llvm-cov-target/jeer-10-0_0.profraw", O_RDWR|O_CREAT, 0666) = 3
+10 exit_group(0) = ?

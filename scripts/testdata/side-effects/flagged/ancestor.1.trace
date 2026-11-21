@@ -1,0 +1,2 @@
+10 execve("/repo/target/debug/deps/jeer-0", ["jeer-0"], 0x7ffc) = 0
+10 openat(AT_FDCWD, "/repo/", O_RDONLY|O_DIRECTORY) = 3
