@@ -1,0 +1,36 @@
+id: functions
+language: Rust
+severity: error
+message: A function whose body is a single expression or statement is prohibited; write it inline where it is used.
+files:
+  - src/**/*.rs
+  - tools/**/*.rs
+rule:
+  kind: function_item
+  has:
+    field: body
+    kind: block
+    all:
+      - has:
+          nthChild: 1
+      - not:
+          has:
+            nthChild: 2
+  not:
+    any:
+      - has:
+          field: name
+          regex: ^main$
+      - has:
+          field: return_type
+          regex: ^impl (Fn|FnMut|FnOnce)\b
+      - follows:
+          kind: attribute_item
+          regex: ^#\[test\]$
+      - inside:
+          kind: impl_item
+          stopBy: end
+          has:
+            field: trait
+            stopBy: neighbor
+            regex: .

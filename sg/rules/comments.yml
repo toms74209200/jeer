@@ -1,0 +1,13 @@
+id: comments
+language: Rust
+severity: error
+message: Comments are prohibited in all code, test code included; say it in names and types, or in docs/.
+files:
+  - src/**/*.rs
+  - tests/**/*.rs
+  - benches/**/*.rs
+  - tools/**/*.rs
+rule:
+  any:
+    - kind: line_comment
+    - kind: block_comment
