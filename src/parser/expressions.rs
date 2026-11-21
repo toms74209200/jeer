@@ -387,9 +387,7 @@ impl Parser<'_> {
             TokenKind::Punct(Punct::Lt) => {
                 children.push(self.type_arguments()?);
                 match self.kind(0) {
-                    TokenKind::Keyword(Keyword::This | Keyword::Super) | TokenKind::Identifier => {
-                        self.bump(&mut children)
-                    }
+                    TokenKind::Keyword(Keyword::This | Keyword::Super) => self.bump(&mut children),
                     _ => return self.fail("<identifier> expected"),
                 }
                 children.push(self.arguments()?);
