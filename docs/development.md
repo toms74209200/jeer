@@ -153,3 +153,79 @@ Once adopted (§4.3), the loop is: measure → hypothesize → change → re-mea
 - [1] Lauren Tan, "All Code Is Slop (Except Mine)", AI Engineer CODE 2026. https://ai.engineer/code/2026/talks/lauren-tan
 - [2] toms74209200, 実験レポート「APoSD 指示は設計を変えるか」の要点. https://gist.github.com/toms74209200/3eb817af4656d1cf72370dfef55eee37
 - [3] Google Testing Blog, "Test Sizes", 2010. https://testing.googleblog.com/2010/12/test-sizes.html
+
+## 8. Conventions
+The workflow above runs on [shampoo](https://github.com/toms74209200/shampoo): `.shampoo/` holds the rules, checks and policies, hooks in `.claude/settings.json` call `shampoo guard` and `shampoo policies`, and `shampoo next` drives tasks from `tasks/` to merged PRs. shampoo is the `factory` of §2.3. This section records the conventions its checks enforce, so they live in the repository and in executable checks rather than in agent memory.
+
+### 8.1 Checks
+Every check is a script under `scripts/`, called directly (not through `make`, which exits 2 on any recipe failure). Each exits 0 on pass, 1 on a task failure (the work is wrong) and anything else on a workflow failure (the check misbehaved). Tools are pinned in the scripts that run them: the Rust toolchain in `rust-toolchain.toml`, ast-grep in `scripts/ast-grep.sh`, cargo-llvm-cov in `scripts/cargo-llvm-cov.sh`, Gradle, Spotless and GJF in `oracle/`. Local runs and CI judge the same way.
+
+| Script | Size | Checks |
+|---|---|---|
+| `scripts/lint.sh` | Small | rustfmt and clippy with the lints of `Cargo.toml`, warnings denied; writes `#[expect]` exceptions to `out/exceptions/lint.txt` |
+| `scripts/check-sg.sh <rule>` | Small | The ast-grep rules of §3 in `sg/rules/`: comments, single-expression functions, test names, test helpers, exceptions |
+| `scripts/check-dependencies.sh` | Small | Every crate is in `scripts/allowed-crates.txt` |
+| `scripts/test-small.sh` | Small | Unit tests in `src/`, with coverage to `out/small.lcov`; `scripts/judge-small-test-coverage.sh` requires 90% outside `scripts/side-effect-modules.txt` |
+| `scripts/check-commit.sh --rev <commit>` | Small | §8.2 |
+| `scripts/check-fixture-commit.sh --rev <commit>` | Small | §8.4 |
+| `scripts/test-fixtures.sh` | Medium | Every fixture without a skip marker passes, idempotently |
+| `scripts/check-fixtures-oracle.sh` | Medium | Every expected output is the oracle's |
+| `scripts/corpus-diff.sh [dev\|holdout]` | Medium | Match against the oracle on a pinned corpus; fails on files that matched at the merge-base and no longer do |
+
+The only exception to a lint is `#[expect(<lint>, reason = "<reason>")]`; lint levels are set in `Cargo.toml`, never in code.
+
+### 8.2 Commits
+A task (a PR) is made of minimal commits: one commit, one subject, and everything staged is needed either for the subject to be true or for the checks to pass. Every commit passes the checks on its own (`.githooks/pre-commit` runs the small checks on what is staged, in a clean worktree); fixtures never share a commit with the implementation they judge (§8.4).
+
+```
+:<gitmoji>: <Verb> <what>
+
+<optional body: why, not what>
+
+<optional trailers>
+```
+
+- The subject is at most 72 characters and does not end with a period
+- The subject describes one change: outside `code spans` it contains no `and`, `,` or `&`
+- The message has no directive that skips CI (`[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`, `[actions skip]`, `skip-checks: true`)
+- A body, if any, is separated from the subject by a blank line, and explains why
+- Emoji are written as `:code:`. Merge commits are written by GitHub from the PR title and are not checked
+
+### 8.3 Emoji and verbs
+`scripts/check-commit.sh` holds the authoritative lists, taken from shampoo's development guide.
+
+| Emoji | Use for |
+|---|---|
+| `:sparkles:` | New feature |
+| `:bug:` | Bug fix |
+| `:recycle:` | Refactoring |
+| `:art:` | Code structure or format |
+| `:white_check_mark:` | Tests and fixtures |
+| `:memo:` | Documentation |
+| `:hammer:` | Development scripts and tooling (scripts, oracle, corpus, hooks) |
+| `:construction_worker:` | CI |
+| `:rotating_light:` | Linter config or lint fixes |
+| `:see_no_evil:` | `.gitignore` |
+| `:wrench:` | Configuration |
+| `:heavy_plus_sign:` / `:heavy_minus_sign:` / `:arrow_up:` | Add / remove / upgrade a dependency |
+| `:fire:` | Remove code or files |
+| `:truck:` | Move or rename |
+| `:zap:` | Performance |
+| `:pencil2:` | Typo |
+| `:rewind:` | Revert |
+
+Verbs, in the imperative: Add, Change, Update, Bump, Fix, Remove, Rename, Move, Refactor, Clean, Replace, Apply, Revert.
+
+### 8.4 The oracle, fixtures and corpora
+- **The oracle** is `oracle/`: Spotless 8.12.0 with google-java-format 2.0.0 through the Gradle wrapper, on JDK 25. `scripts/oracle.sh <profile> <in> <out>` writes the formatted file, or `<file>.error` when the oracle rejects it, caching results by content and oracle configuration under `out/oracle-cache/`. A profile names a Spotless step setup in `oracle/build.gradle.kts`
+- **Fixtures** are the spec CI runs, independent of any corpus: `tests/fixtures/<profile>/<name>/input.java` is Java of our own, and `expected.java` or `expected.error` is generated by `scripts/generate-fixture.sh`, never written by hand. jeer is run as `jeer --stdin --profile <profile>` on them
+- **Fixtures change in commits of their own.** A commit that changes fixtures changes no production code. A new fixture carries a `skip` marker so that it can land before its implementation; the implementation deletes the markers it makes pass, in the same commit as the code. A marker is never added to an existing fixture
+- **Corpora** are pinned in `corpus/sources.tsv` and fetched locally into `out/` by `scripts/fetch-corpus.sh`; they are never committed and CI does not use them. `dev` corpora are worked against; `holdout` corpora are only measured at the milestone (§4.2)
+
+### 8.5 Branches, merging and CI
+- One task per branch and PR, branched from `master` with `git switch -c`. Nothing is pushed to `master`
+- The `master` ruleset requires a PR and merge commits, and forbids force pushes and deletion. No check is required: shampoo merges a PR once the workflows its changed paths call for have passed
+- Workflows follow shampoo's layout: `on-pullrequest-*.yml` decide when to run from the changed paths, `job-*.yml` hold the steps. A run may apply the formatter and push the result; it then checks what it pushed in the same run. Nothing skips CI
+
+### 8.6 Records of the HOOTL run
+For the experiment of §1, the evidence is kept where it survives the container: shampoo's ledger and statistics under `.git/`, GitHub's PRs, issues and workflow runs, and the agents' session transcripts copied to `.hootl/` (untracked). Match rates are recomputed from git history, since the oracle and the corpora are pinned.
