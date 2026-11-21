@@ -1,7 +1,7 @@
 id: functions
 language: Rust
 severity: error
-message: A function whose body is a single expression or statement is prohibited; write it inline where it is used.
+message: A function whose body is a single expression or statement, other than a `match` choosing between cases, is prohibited; write it inline where it is used.
 files:
   - src/**/*.rs
   - tools/**/*.rs
@@ -13,6 +13,13 @@ rule:
     all:
       - has:
           nthChild: 1
+          not:
+            any:
+              - kind: match_expression
+              - all:
+                  - kind: expression_statement
+                  - has:
+                      kind: match_expression
       - not:
           has:
             nthChild: 2
