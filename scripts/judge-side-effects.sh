@@ -17,7 +17,7 @@ found=$(for trace in "$1"/*.trace; do
 		if (path ~ /terminfo/) return 1
 		if (path == "/etc/ld.so.cache" || path == "/etc/ld.so.preload" || path ~ /^\/(usr\/)?lib(64|32|x32)?\//) return 1
 		if (path ~ /\/toolchains\/[^\/]+\/lib\//) return 1
-		if (index(path, "/proc/self/") == 1 || index(path, "/sys/fs/cgroup/") == 1 || index(path, "/sys/devices/system/cpu/") == 1) return 1
+		if (index(path, "/proc/self/") == 1 || index(path, "/sys/fs/cgroup/") == 1 || index(path, "/sys/devices/system/cpu/") == 1 || path == "/proc/sys/vm/overcommit_memory") return 1
 		return 0
 	}
 	{
