@@ -1,0 +1,2 @@
+command = "scripts/check-sg.sh exceptions"
+size = "small"

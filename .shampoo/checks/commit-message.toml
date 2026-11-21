@@ -1,0 +1,2 @@
+command = "scripts/check-commit.sh --rev <commit>"
+size = "small"

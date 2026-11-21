@@ -1,0 +1,32 @@
+review = true
+text = '''
+Recognize it by: a boolean or option argument that switches extra behavior
+on: `trace`, `verbose`, `check_only`.
+
+Concepts: composition builds a function from functions. The extra behavior
+becomes a function that takes the core function and returns a new one, so
+the core has no branch for it.
+
+Instead of:
+```rust
+fn format(src: &str, check_only: bool) -> Result<String, Error> {
+    if check_only { ... }
+    ...
+}
+```
+
+Tests no longer needed: `format` with and without the flag. The extra
+behavior is tested once, for any function.'''
+example = '''
+```rust
+fn checking<F>(format: F) -> impl Fn(&str) -> Report
+where
+    F: Fn(&str) -> Result<String, SyntaxError>,
+{
+    move |src| match format(src) {
+        Ok(out) if out == src => Report::Formatted,
+        Ok(_) => Report::NeedsFormatting,
+        Err(e) => Report::Rejected(e),
+    }
+}
+```'''

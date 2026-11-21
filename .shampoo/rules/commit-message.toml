@@ -1,0 +1,4 @@
+rule = "Every commit message follows docs/development.md §8.2."
+check = "commit-message"
+transitions = ["pr"]
+judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

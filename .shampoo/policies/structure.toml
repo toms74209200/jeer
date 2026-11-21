@@ -1,0 +1,8 @@
+review = true
+text = '''
+Production code is made of:
+- Parse functions at the boundary (source text → tokens → CST; arguments → options)
+- Structures that choose which function applies (enums matched exhaustively, tables of steps)
+- Statements with side effects, in the side-effect modules only
+
+Small tests cover the first two.'''

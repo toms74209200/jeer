@@ -1,0 +1,23 @@
+review = true
+text = '''
+Recognize it by: one value run through several checks or steps, each with
+its own `if`, the results collected by hand.
+
+Concepts: a product of applications applies several functions to the same
+value, giving the results together. Spotless steps are this shape: a list
+of functions from source to source.
+
+Instead of:
+```rust
+let mut out = src.to_owned();
+if cfg.trim { out = trim_trailing_whitespace(&out); }
+if cfg.newline { out = end_with_newline(&out); }
+```
+
+Tests no longer needed: every combination of steps on and off. Each step
+is tested alone, and adding one changes no other test.'''
+example = '''
+```rust
+let steps: Vec<Step> = profile.steps();
+let out = steps.iter().try_fold(src.to_owned(), |text, step| step.apply(&text))?;
+```'''

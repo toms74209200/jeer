@@ -1,0 +1,2 @@
+command = "scripts/corpus-diff.sh dev"
+size = "medium"

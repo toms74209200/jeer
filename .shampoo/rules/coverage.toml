@@ -1,0 +1,5 @@
+rule = "Small-test coverage of the code outside the side-effect modules (scripts/side-effect-modules.txt) is at least 90%."
+check = "small-tests"
+transitions = ["task", "pr"]
+paths = ["**.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "scripts/test-small.sh", "scripts/judge-small-test-coverage.sh", "scripts/side-effect-modules.txt"]
+judge = { command = "scripts/judge-small-test-coverage.sh out/small.lcov", exit = { 1 = "task-failure", other = "workflow-failure" } }

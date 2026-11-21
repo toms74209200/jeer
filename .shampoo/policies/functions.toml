@@ -1,0 +1,10 @@
+review = true
+text = '''
+Creating a function is prohibited, except when it meets both of these:
+- It satisfies "parse, don't validate" and the Curry–Howard isomorphism: its type states what it establishes
+- It is a deep module: it hides branches behind an interface much smaller than what it hides
+
+A function whose callers branch on its result to recover a fact it had
+already established returns that fact as a type instead (docs/development.md §3).
+Functions of the kinds in the structure policy leave no room for the
+functions prohibited by the rules.'''

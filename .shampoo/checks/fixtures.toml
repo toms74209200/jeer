@@ -1,0 +1,2 @@
+command = "scripts/test-fixtures.sh"
+size = "medium"

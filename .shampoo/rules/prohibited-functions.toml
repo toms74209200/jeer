@@ -1,0 +1,10 @@
+rule = '''
+A function whose body is a single expression or statement is prohibited, and is written inline where it is used (docs/development.md §3). Exempt: main, test functions, combinators returning `impl Fn` (composition policy), and methods of trait impls, whose shape the trait sets. This covers:
+- A call one level down, or an entry point that passes values on
+- A name for a condition used in one place
+- A tiny formatting helper
+- A conversion whose result type carries nothing new'''
+check = "functions"
+transitions = ["edit", "task", "pr"]
+paths = ["**.rs", "sg/rules/functions.yml", "scripts/check-sg.sh", "scripts/ast-grep.sh"]
+judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }
