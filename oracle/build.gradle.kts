@@ -16,6 +16,12 @@ spotless {
         target(fileTree("work") { include("*.java") })
         when (profile) {
             "gjf" -> googleJavaFormat("2.0.0")
+            "import-order" -> importOrder()
+            "unused-imports" -> removeUnusedImports()
+            "toggle" -> {
+                toggleOffOn()
+                trimTrailingWhitespace()
+            }
             "whitespace" -> {
                 trimTrailingWhitespace()
                 endWithNewline()
