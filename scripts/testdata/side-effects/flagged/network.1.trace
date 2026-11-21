@@ -1,0 +1,2 @@
+10 execve("/repo/target/debug/deps/jeer-0", ["jeer-0"], 0x7ffc) = 0
+10 socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, IPPROTO_IP) = 3

@@ -17,8 +17,14 @@ jobs:
             target
             out/tools
           key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock', 'scripts/ast-grep.sh', 'scripts/cargo-llvm-cov.sh') }}
+      - name: Install strace
+        run: sudo apt-get install -y strace
       - name: Run small tests with coverage
         run: scripts/test-small.sh
+      - name: Judge side effects
+        run: scripts/judge-side-effects.sh out/traces
+      - name: Test the side-effect judge
+        run: scripts/test-judge-side-effects.sh
       - uses: actions/upload-artifact@v7
         with:
           name: small-cover
