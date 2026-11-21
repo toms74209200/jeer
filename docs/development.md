@@ -166,7 +166,7 @@ Every check is a script under `scripts/`, called directly (not through `make`, w
 | `scripts/check-sg.sh <rule>` | Small | The ast-grep rules of §3 in `sg/rules/`: comments, single-expression functions, test names, test helpers, exceptions |
 | `scripts/check-branching-results.sh` | Small | The dylint lint of §3 in `tools/branching-results/` (pinned nightly and dylint in `scripts/dylint.sh`): results callers branch on |
 | `scripts/check-dependencies.sh` | Small | Every crate is in `scripts/allowed-crates.txt` |
-| `scripts/test-small.sh` | Small | Unit tests in `src/`, with coverage to `out/small.lcov`; `scripts/judge-small-test-coverage.sh` requires 90% outside `scripts/side-effect-modules.txt` |
+| `scripts/test-small.sh` | Small | Unit tests in `src/`, with coverage to `out/small.lcov`; `scripts/judge-small-test-coverage.sh` requires 95% outside `scripts/side-effect-modules.txt`; `scripts/coverage-summary.sh` reports per module; `scripts/judge-coverage.sh` charges the coverage budget when the share of pure code drops more than one standard deviation below the base (`scripts/coverage-baseline.txt`, updated by CI) |
 | `scripts/check-commit.sh --rev <commit>` | Small | §8.2 |
 | `scripts/check-fixture-commit.sh --rev <commit>` | Small | §8.4 |
 | `scripts/test-fixtures.sh` | Medium | Every fixture without a skip marker passes, idempotently |
