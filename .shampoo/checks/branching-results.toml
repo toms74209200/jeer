@@ -1,0 +1,2 @@
+command = "scripts/check-branching-results.sh"
+size = "small"
