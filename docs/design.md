@@ -3,7 +3,7 @@
 - Status: Accepted
 - Created: 2026-11-16
 - Name: `jeer`
-- Related: [jeer Development Process](jeer-development.md) — how we build jeer with agents
+- Related: [jeer Development Process](development.md) — how we build jeer with agents
 
 This document describes the product: why it exists, what it is, how it is used, and how it is designed. How we go about building it is covered in the development process document.
 

@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Created: 2026-11-17
-- Related: [jeer Design Doc](jeer-design.md) — the product itself
+- Related: [jeer Design Doc](design.md) — the product itself
 
 This document describes how we build jeer with agents. What jeer is and how it is designed are covered in the design doc.
 
