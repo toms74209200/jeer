@@ -206,10 +206,16 @@ impl Parser<'_> {
                 children: package,
             }));
         }
+        let mut section = Section::Imports;
         loop {
-            match self.kind(0) {
-                TokenKind::Keyword(Keyword::Import) => children.push(self.import()?),
-                TokenKind::Punct(Punct::Semicolon) => {
+            match (self.kind(0), &section) {
+                (TokenKind::Keyword(Keyword::Import), Section::Imports) => {
+                    children.push(self.import()?)
+                }
+                (TokenKind::Keyword(Keyword::Import), Section::Declarations) => {
+                    return self.fail("class, interface, enum, or record expected");
+                }
+                (TokenKind::Punct(Punct::Semicolon), _) => {
                     let mut empty = Vec::new();
                     self.bump(&mut empty);
                     children.push(Element::Node(Node {
@@ -217,8 +223,9 @@ impl Parser<'_> {
                         children: empty,
                     }));
                 }
-                TokenKind::Eof => break,
+                (TokenKind::Eof, _) => break,
                 _ => {
+                    section = Section::Declarations;
                     let module = self.probe(|p| {
                         let mut ignored = Vec::new();
                         p.modifiers(&mut ignored)?;
@@ -342,6 +349,11 @@ impl Parser<'_> {
             children,
         }))
     }
+}
+
+enum Section {
+    Imports,
+    Declarations,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -579,6 +591,12 @@ mod tests {
             (r#"class A { void f() { (a); } }"#, 21),
             (r#"class A { void f() { -a; } }"#, 21),
             (r#"class A { /* open"#, 10),
+            (r#"class A { void g() { <T>f(); } }"#, 24),
+            (
+                r#"class A {}
+import a.B;"#,
+                11,
+            ),
             (r#"class A {"#, 9),
             (r#"class A { void f() {"#, 20),
             (r#"enum E { A"#, 10),
