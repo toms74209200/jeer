@@ -16,6 +16,10 @@ spotless {
         target(fileTree("work") { include("*.java") })
         when (profile) {
             "gjf" -> googleJavaFormat("2.0.0")
+            "whitespace" -> {
+                trimTrailingWhitespace()
+                endWithNewline()
+            }
             else -> throw GradleException("unknown oracle profile: $profile")
         }
     }
