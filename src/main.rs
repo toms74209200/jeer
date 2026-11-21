@@ -1,4 +1,9 @@
 mod cli;
+#[expect(
+    dead_code,
+    reason = "the Doc printer is used by the gjf formatter from task 110 on"
+)]
+mod gjf;
 mod lexer;
 mod parser;
 mod profile;
