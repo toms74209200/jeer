@@ -41,15 +41,10 @@ pub fn run(args: &[String], input: &[u8]) -> Outcome {
             match profile.format(&source) {
                 Ok(formatted) if formatted.as_bytes() == input => Outcome::Unchanged(formatted),
                 Ok(formatted) => Outcome::Changed(formatted),
-                Err(rejection) => {
-                    let before = &source[..rejection.offset];
-                    let line = before.matches('\n').count() + 1;
-                    let column = before
-                        .rfind('\n')
-                        .map_or(before.chars().count(), |n| before[n + 1..].chars().count())
-                        + 1;
-                    Outcome::Rejected(format!("jeer: {line}:{column}: {}\n", rejection.message))
-                }
+                Err(rejection) => Outcome::Rejected(format!(
+                    "jeer: {}:{}: {}\n",
+                    rejection.line, rejection.column, rejection.message
+                )),
             }
         }
         Err(error) => Outcome::Usage(format!("jeer: {error}\n{}\n", args::USAGE)),

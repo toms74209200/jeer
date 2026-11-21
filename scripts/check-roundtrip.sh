@@ -13,12 +13,12 @@ bin="$root/target/release/jeer"
 roundtrip_one() {
 	bin=$1 file=$2
 	actual=$(mktemp) || { printf 'ERROR %s: mktemp failed\n' "$file"; return; }
-	timeout 10 "$bin" --stdin --profile lexer-roundtrip <"$file" >"$actual" 2>"$actual.err"
+	timeout 10 "$bin" --stdin --profile cst-roundtrip <"$file" >"$actual" 2>"$actual.err"
 	status=$?
 	if [ $status -gt 1 ]; then
 		printf 'FAIL %s: exit %s %s\n' "$file" "$status" "$(head -c 200 "$actual.err")"
 	elif ! cmp -s "$actual" "$file"; then
-		printf 'FAIL %s: tokens do not reproduce the input\n' "$file"
+		printf 'FAIL %s: the syntax tree does not reproduce the input\n' "$file"
 	fi
 	rm -f "$actual" "$actual.err"
 }

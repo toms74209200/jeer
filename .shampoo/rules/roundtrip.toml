@@ -1,4 +1,4 @@
-rule = "Every dev corpus file lexes without error and its tokens reproduce it byte for byte (`--profile lexer-roundtrip`)."
+rule = "Every dev corpus file lexes and parses, and its syntax tree reproduces it byte for byte (`--profile cst-roundtrip`)."
 check = "roundtrip"
 transitions = ["task"]
 paths = ["**.rs", "Cargo.toml", "Cargo.lock", "corpus/**", "scripts/check-roundtrip.sh", "scripts/fetch-corpus.sh"]
