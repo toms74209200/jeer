@@ -6,6 +6,9 @@ use crate::steps::line_endings::UnixText;
 #[derive(Debug, PartialEq, Eq)]
 pub enum Profile {
     Whitespace,
+    ImportOrder,
+    UnusedImports,
+    Toggle,
     LexerRoundtrip,
     CstRoundtrip,
     Gjf,
@@ -40,6 +43,9 @@ impl std::str::FromStr for Profile {
     fn from_str(name: &str) -> Result<Self, Self::Err> {
         match name {
             "whitespace" => Ok(Profile::Whitespace),
+            "import-order" => Ok(Profile::ImportOrder),
+            "unused-imports" => Ok(Profile::UnusedImports),
+            "toggle" => Ok(Profile::Toggle),
             "lexer-roundtrip" => Ok(Profile::LexerRoundtrip),
             "cst-roundtrip" => Ok(Profile::CstRoundtrip),
             "gjf" => Ok(Profile::Gjf),
@@ -58,6 +64,28 @@ impl Profile {
                 ];
                 let unix = String::from(UnixText::from(source));
                 Ok(steps.iter().fold(unix, |text, step| step(&text)))
+            }
+            Profile::ImportOrder => {
+                let unix = String::from(UnixText::from(source));
+                steps::import_order::apply(&unix)
+                    .map_err(|_| Rejection::at(&unix, 0, "import order failed".to_owned()))
+            }
+            Profile::UnusedImports => {
+                let unix = String::from(UnixText::from(source));
+                steps::unused_imports::apply(&unix)
+                    .map_err(|e| Rejection::at(&unix, e.offset, e.message))
+            }
+            Profile::Toggle => {
+                let unix = String::from(UnixText::from(source));
+                steps::toggle::preserving(steps::trim_trailing_whitespace::apply)(&unix).map_err(
+                    |_| {
+                        Rejection::at(
+                            &unix,
+                            0,
+                            "a step removed a spotless:off/on fence".to_owned(),
+                        )
+                    },
+                )
             }
             Profile::LexerRoundtrip => {
                 let tokens = lexer::scan(source)
@@ -160,12 +188,47 @@ mod tests {
     }
 
     #[test]
+    fn when_format_with_a_step_profile_then_returns_the_step_output_or_the_rejection() {
+        let cases = [
+            (
+                Profile::ImportOrder,
+                "import b.B;\r\nimport a.A;\r\nclass A {}\r\n",
+                Ok("import a.A;\nimport b.B;\nclass A {}\n".to_owned()),
+            ),
+            (Profile::ImportOrder, "  ", Err((1, 1))),
+            (
+                Profile::UnusedImports,
+                "import a.B;\r\nclass A {}\r\n",
+                Ok("class A {}\n".to_owned()),
+            ),
+            (
+                Profile::UnusedImports,
+                "import a.B;\nclass A {",
+                Err((2, 10)),
+            ),
+            (
+                Profile::Toggle,
+                "a  \n// spotless:off\nb  \n// spotless:on\n",
+                Ok("a\n// spotless:off\nb  \n// spotless:on\n".to_owned()),
+            ),
+        ];
+        for (profile, source, expected) in cases {
+            let formatted = profile.format(source).map_err(|r| (r.line, r.column));
+
+            assert_eq!(formatted, expected, "{source:?}");
+        }
+    }
+
+    #[test]
     fn when_from_str_with_a_name_then_returns_its_profile_or_an_error() {
         let cases = [
             ("whitespace", Ok(Profile::Whitespace)),
             ("lexer-roundtrip", Ok(Profile::LexerRoundtrip)),
             ("cst-roundtrip", Ok(Profile::CstRoundtrip)),
             ("gjf", Ok(Profile::Gjf)),
+            ("import-order", Ok(Profile::ImportOrder)),
+            ("unused-imports", Ok(Profile::UnusedImports)),
+            ("toggle", Ok(Profile::Toggle)),
             ("palantir", Err("unknown profile: palantir".to_owned())),
         ];
         for (name, expected) in cases {
