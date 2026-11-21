@@ -164,6 +164,7 @@ Every check is a script under `scripts/`, called directly (not through `make`, w
 |---|---|---|
 | `scripts/lint.sh` | Small | rustfmt and clippy with the lints of `Cargo.toml`, warnings denied; writes `#[expect]` exceptions to `out/exceptions/lint.txt` |
 | `scripts/check-sg.sh <rule>` | Small | The ast-grep rules of §3 in `sg/rules/`: comments, single-expression functions, test names, test helpers, exceptions |
+| `scripts/check-branching-results.sh` | Small | The dylint lint of §3 in `tools/branching-results/` (pinned nightly and dylint in `scripts/dylint.sh`): results callers branch on |
 | `scripts/check-dependencies.sh` | Small | Every crate is in `scripts/allowed-crates.txt` |
 | `scripts/test-small.sh` | Small | Unit tests in `src/`, with coverage to `out/small.lcov`; `scripts/judge-small-test-coverage.sh` requires 90% outside `scripts/side-effect-modules.txt` |
 | `scripts/check-commit.sh --rev <commit>` | Small | §8.2 |
