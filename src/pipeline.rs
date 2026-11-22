@@ -1,9 +1,79 @@
 use crate::gjf;
-use crate::gjf::builder::Unformatted;
 use crate::lexer;
 use crate::parser;
 use crate::steps;
 use crate::steps::line_endings::UnixText;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Position {
+    Offset(usize),
+    #[expect(
+        dead_code,
+        reason = "gjf reports errors after its cleanups at a line and column of the cleaned text in task 118"
+    )]
+    LineColumn {
+        line: usize,
+        column: usize,
+    },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Rejection {
+    pub position: Position,
+    pub message: String,
+}
+
+pub type Step = Box<dyn Fn(&str) -> Result<String, Rejection>>;
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Located {
+    pub line: usize,
+    pub column: usize,
+    pub message: String,
+}
+
+impl Located {
+    fn at(text: &str, rejection: Rejection) -> Located {
+        match rejection.position {
+            Position::LineColumn { line, column } => Located {
+                line,
+                column,
+                message: rejection.message,
+            },
+            Position::Offset(offset) => {
+                let before = &text[..offset];
+                let line = before.matches('\n').count() + 1;
+                let column = before
+                    .rfind('\n')
+                    .map_or(before.chars().count(), |n| before[n + 1..].chars().count())
+                    + 1;
+                Located {
+                    line,
+                    column,
+                    message: rejection.message,
+                }
+            }
+        }
+    }
+}
+
+pub fn total(step: fn(&str) -> String) -> impl Fn(&str) -> Result<String, Rejection> {
+    move |text| Ok(step(text))
+}
+
+pub struct Pipeline {
+    steps: Vec<Step>,
+}
+
+impl Pipeline {
+    pub fn run(&self, source: &str) -> Result<String, Located> {
+        let mut text = source.to_owned();
+        for step in &self.steps {
+            text = step(&text).map_err(|rejection| Located::at(&text, rejection))?;
+        }
+        Ok(text)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Profile {
@@ -14,29 +84,6 @@ pub enum Profile {
     LexerRoundtrip,
     CstRoundtrip,
     Gjf,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct Rejection {
-    pub line: usize,
-    pub column: usize,
-    pub message: String,
-}
-
-impl Rejection {
-    fn at(text: &str, offset: usize, message: String) -> Rejection {
-        let before = &text[..offset];
-        let line = before.matches('\n').count() + 1;
-        let column = before
-            .rfind('\n')
-            .map_or(before.chars().count(), |n| before[n + 1..].chars().count())
-            + 1;
-        Rejection {
-            line,
-            column,
-            message,
-        }
-    }
 }
 
 impl std::str::FromStr for Profile {
@@ -57,66 +104,59 @@ impl std::str::FromStr for Profile {
 }
 
 impl Profile {
-    pub fn format(self, source: &str) -> Result<String, Rejection> {
+    fn steps(self) -> Vec<Step> {
+        let unix = || -> Step { Box::new(total(|text| String::from(UnixText::from(text)))) };
         match self {
-            Profile::Whitespace => {
-                let steps: [fn(&str) -> String; 2] = [
+            Profile::Whitespace => vec![
+                unix(),
+                Box::new(total(steps::trim_trailing_whitespace::apply)),
+                Box::new(total(steps::end_with_newline::apply)),
+            ],
+            Profile::ImportOrder => vec![unix(), Box::new(steps::import_order::apply)],
+            Profile::UnusedImports => vec![unix(), Box::new(steps::unused_imports::apply)],
+            Profile::Toggle => vec![
+                unix(),
+                Box::new(steps::toggle::preserving(total(
                     steps::trim_trailing_whitespace::apply,
-                    steps::end_with_newline::apply,
-                ];
-                let unix = String::from(UnixText::from(source));
-                Ok(steps.iter().fold(unix, |text, step| step(&text)))
-            }
-            Profile::ImportOrder => {
-                let unix = String::from(UnixText::from(source));
-                steps::import_order::apply(&unix)
-                    .map_err(|_| Rejection::at(&unix, 0, "import order failed".to_owned()))
-            }
-            Profile::UnusedImports => {
-                let unix = String::from(UnixText::from(source));
-                steps::unused_imports::apply(&unix)
-                    .map_err(|e| Rejection::at(&unix, e.offset, e.message))
-            }
-            Profile::Toggle => {
-                let unix = String::from(UnixText::from(source));
-                steps::toggle::preserving(steps::trim_trailing_whitespace::apply)(&unix).map_err(
-                    |_| {
-                        Rejection::at(
-                            &unix,
-                            0,
-                            "a step removed a spotless:off/on fence".to_owned(),
-                        )
-                    },
-                )
-            }
-            Profile::LexerRoundtrip => {
-                let tokens = lexer::scan(source)
-                    .map_err(|e| Rejection::at(source, e.offset, e.kind.to_string()))?
-                    .tokens;
-                Ok(tokens.iter().map(|t| &source[t.start..t.end]).collect())
-            }
-            Profile::CstRoundtrip => {
-                let tree = parser::parse(source)
-                    .map_err(|e| Rejection::at(source, e.offset, e.message))?
-                    .tree;
-                Ok(tree
-                    .tokens()
-                    .iter()
-                    .map(|t| &source[t.start..t.end])
-                    .collect())
-            }
-            Profile::Gjf => {
-                let unix = String::from(UnixText::from(source));
-                let unit =
-                    parser::parse(&unix).map_err(|e| Rejection::at(&unix, e.offset, e.message))?;
-                match gjf::format(&unix, &unit) {
-                    Ok(formatted) => Ok(formatted),
-                    Err(Unformatted::Deferred) => Ok(unix),
-                    Err(Unformatted::Rejected { offset, message }) => {
-                        Err(Rejection::at(&unix, offset, message))
-                    }
-                }
-            }
+                ))),
+            ],
+            Profile::LexerRoundtrip => vec![Box::new(|source: &str| {
+                lexer::scan(source)
+                    .map(|lexed| {
+                        lexed
+                            .tokens
+                            .iter()
+                            .map(|t| &source[t.start..t.end])
+                            .collect()
+                    })
+                    .map_err(|e| Rejection {
+                        position: Position::Offset(e.offset),
+                        message: e.kind.to_string(),
+                    })
+            })],
+            Profile::CstRoundtrip => vec![Box::new(|source: &str| {
+                parser::parse(source)
+                    .map(|unit| {
+                        unit.tree
+                            .tokens()
+                            .iter()
+                            .map(|t| &source[t.start..t.end])
+                            .collect()
+                    })
+                    .map_err(|e| Rejection {
+                        position: Position::Offset(e.offset),
+                        message: e.message,
+                    })
+            })],
+            Profile::Gjf => vec![unix(), Box::new(gjf::step(gjf::Options::default()))],
+        }
+    }
+}
+
+impl From<Profile> for Pipeline {
+    fn from(profile: Profile) -> Self {
+        Pipeline {
+            steps: profile.steps(),
         }
     }
 }
@@ -135,7 +175,7 @@ mod tests {
             ("a\rb\r", "a\nb\n"),
         ];
         for (source, expected) in cases {
-            let formatted = Profile::Whitespace.format(source);
+            let formatted = Pipeline::from(Profile::Whitespace).run(source);
 
             assert_eq!(formatted, Ok(expected.to_owned()), "{source:?}");
         }
@@ -150,7 +190,7 @@ mod tests {
             ),
             (
                 "class A { /* open",
-                Err(Rejection {
+                Err(Located {
                     line: 1,
                     column: 11,
                     message: "unclosed comment".to_owned(),
@@ -158,7 +198,7 @@ mod tests {
             ),
         ];
         for (source, expected) in cases {
-            let formatted = Profile::LexerRoundtrip.format(source);
+            let formatted = Pipeline::from(Profile::LexerRoundtrip).run(source);
 
             assert_eq!(formatted, expected, "{source:?}");
         }
@@ -174,8 +214,8 @@ mod tests {
             ("class A { int x = 1 }", Err((1, 21))),
         ];
         for (source, expected) in cases {
-            let formatted = Profile::CstRoundtrip
-                .format(source)
+            let formatted = Pipeline::from(Profile::CstRoundtrip)
+                .run(source)
                 .map_err(|r| (r.line, r.column));
 
             assert_eq!(formatted, expected, "{source:?}");
@@ -201,7 +241,9 @@ mod tests {
             ("class A {\r\n\r\n\r\n  int x = 1 }", Err((4, 13))),
         ];
         for (source, expected) in cases {
-            let formatted = Profile::Gjf.format(source).map_err(|r| (r.line, r.column));
+            let formatted = Pipeline::from(Profile::Gjf)
+                .run(source)
+                .map_err(|r| (r.line, r.column));
 
             assert_eq!(formatted, expected, "{source:?}");
         }
@@ -233,7 +275,9 @@ mod tests {
             ),
         ];
         for (profile, source, expected) in cases {
-            let formatted = profile.format(source).map_err(|r| (r.line, r.column));
+            let formatted = Pipeline::from(profile)
+                .run(source)
+                .map_err(|r| (r.line, r.column));
 
             assert_eq!(formatted, expected, "{source:?}");
         }

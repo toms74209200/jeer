@@ -12,8 +12,9 @@ use output::{JavaOutput, Pending};
 use visitor::Visitor;
 
 use crate::lexer::token::TokenClass;
-use crate::parser::Unit;
-use crate::syntax::{Element, Node};
+use crate::parser::syntax::{Element, Node};
+use crate::parser::{self, Unit};
+use crate::pipeline::{Position, Rejection};
 
 fn significant(node: &Node) -> Node {
     let mut children = Vec::new();
@@ -32,7 +33,28 @@ fn significant(node: &Node) -> Node {
     }
 }
 
-pub fn format(source: &str, unit: &Unit) -> Result<String, Unformatted> {
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Options {}
+
+pub fn step(options: Options) -> impl Fn(&str) -> Result<String, Rejection> {
+    move |text| {
+        let Options {} = options;
+        let unit = parser::parse(text).map_err(|e| Rejection {
+            position: Position::Offset(e.offset),
+            message: e.message,
+        })?;
+        match format(text, &unit) {
+            Ok(formatted) => Ok(formatted),
+            Err(Unformatted::Deferred) => Ok(text.to_owned()),
+            Err(Unformatted::Rejected { offset, message }) => Err(Rejection {
+                position: Position::Offset(offset),
+                message,
+            }),
+        }
+    }
+}
+
+fn format(source: &str, unit: &Unit) -> Result<String, Unformatted> {
     let cleaned = cleanups::reorder_modifiers(&cleanups::ast_cleanups(source, unit))?;
     match cleaned == source {
         true => format_cleaned(source, unit),

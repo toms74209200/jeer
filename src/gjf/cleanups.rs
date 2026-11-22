@@ -4,7 +4,7 @@ use crate::lexer::identifier::{self, CharClass};
 use crate::lexer::token::{Punct, Token, TokenClass, TokenKind};
 use crate::lexer::{self};
 use crate::parser::Unit;
-use crate::syntax::{Element, Node, NodeKind};
+use crate::parser::syntax::{Element, Node, NodeKind};
 
 #[derive(Debug, Clone, Copy)]
 enum Request {

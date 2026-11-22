@@ -1,12 +1,13 @@
 mod declarations;
 mod expressions;
 mod statements;
+pub mod syntax;
 mod types;
 
 use crate::lexer;
 use crate::lexer::token::{Keyword, Punct, Token, TokenClass, TokenKind};
 use crate::lexer::unicode_escapes::Translated;
-use crate::syntax::{Element, Node, NodeKind};
+use crate::parser::syntax::{Element, Node, NodeKind};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseError {

@@ -1,4 +1,4 @@
-use crate::profile::Profile;
+use crate::pipeline::Profile;
 
 pub const USAGE: &str = "usage: jeer --stdin --profile <profile>";
 

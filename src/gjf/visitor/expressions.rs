@@ -5,7 +5,7 @@ use super::{
     PLUS_FOUR, PLUS_TWO, SPACE, SPACE_BREAK, Visitor, ZERO,
 };
 use crate::lexer::token::{Token, TokenKind};
-use crate::syntax::{Element, Node, NodeKind};
+use crate::parser::syntax::{Element, Node, NodeKind};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Literal {

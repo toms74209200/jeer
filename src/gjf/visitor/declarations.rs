@@ -6,7 +6,7 @@ use super::{
     OPEN_PLUS_TWO, OPEN_ZERO, PLUS_FOUR, PLUS_TWO, SPACE, SPACE_BREAK, Visitor, ZERO,
 };
 use crate::lexer::token::{Keyword, Punct, Token, TokenKind};
-use crate::syntax::{Element, Node, NodeKind};
+use crate::parser::syntax::{Element, Node, NodeKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Declaration {

@@ -2,7 +2,7 @@ use super::super::builder::{Op, Unformatted};
 use super::super::output::BlankLine;
 use super::declarations::Declaration;
 use super::{CLOSE, Direction, FORCED, OPEN_PLUS_TWO, OPEN_ZERO, PLUS_TWO, SPACE, Visitor, ZERO};
-use crate::syntax::{Element, Node, NodeKind};
+use crate::parser::syntax::{Element, Node, NodeKind};
 
 impl<'a> Visitor<'a> {
     pub(super) fn block(&mut self, block: &'a Node) -> Result<(), Unformatted> {

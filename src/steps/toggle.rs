@@ -1,4 +1,4 @@
-pub struct FenceRemoved;
+use crate::pipeline::{Position, Rejection};
 
 const OFF: &str = "spotless:off";
 const ON: &str = "spotless:on";
@@ -19,20 +19,23 @@ fn fences(text: &str) -> Vec<(usize, usize)> {
     regions
 }
 
-pub fn preserving<F>(inner: F) -> impl Fn(&str) -> Result<String, FenceRemoved>
+pub fn preserving<F>(inner: F) -> impl Fn(&str) -> Result<String, Rejection>
 where
-    F: Fn(&str) -> String,
+    F: Fn(&str) -> Result<String, Rejection>,
 {
     move |text| {
         let preserved: Vec<&str> = fences(text)
             .iter()
             .map(|&(start, end)| &text[start..end])
             .collect();
-        let formatted = inner(text);
+        let formatted = inner(text)?;
         let regions = fences(&formatted);
         match (preserved.is_empty(), regions.len() == preserved.len()) {
             (true, _) => Ok(formatted),
-            (false, false) => Err(FenceRemoved),
+            (false, false) => Err(Rejection {
+                position: Position::Offset(0),
+                message: "a step removed a spotless:off/on fence".to_owned(),
+            }),
             (false, true) => {
                 let mut out = String::with_capacity(formatted.len());
                 let mut position = 0;
@@ -57,7 +60,7 @@ mod tests {
         let remove_fences = |text: &str| text.replace("spotless:on", "");
         let input = "a\n// spotless:off\nb  \n// spotless:on\n";
 
-        let output = preserving(remove_fences)(input).ok();
+        let output = preserving(|text| Ok(remove_fences(text)))(input).ok();
 
         assert_eq!(output, None);
     }
@@ -275,7 +278,9 @@ int b;
             ),
         ];
         for (input, expected) in cases {
-            let output = preserving(crate::steps::trim_trailing_whitespace::apply)(input).ok();
+            let output =
+                preserving(|text| Ok(crate::steps::trim_trailing_whitespace::apply(text)))(input)
+                    .ok();
 
             assert_eq!(output.as_deref(), expected, "{input:?}");
         }

@@ -1,6 +1,6 @@
 use super::{Parsed, Parser, TypeContext};
 use crate::lexer::token::{Keyword, Punct, TokenKind};
-use crate::syntax::{Element, Node, NodeKind};
+use crate::parser::syntax::{Element, Node, NodeKind};
 
 const BINARY: [(Punct, u8); 19] = [
     (Punct::PipePipe, 1),

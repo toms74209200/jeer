@@ -2,6 +2,9 @@ mod args;
 
 use args::Invocation;
 
+use crate::io;
+use crate::pipeline::{Pipeline, Profile};
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {
     Unchanged(String),
@@ -34,20 +37,38 @@ impl From<Outcome> for Response {
     }
 }
 
-pub fn run(args: &[String], input: &[u8]) -> Outcome {
+pub struct Usage(String);
+
+impl From<Usage> for Outcome {
+    fn from(usage: Usage) -> Self {
+        Outcome::Usage(usage.0)
+    }
+}
+
+pub struct Plan {
+    pub requests: Vec<io::Request>,
+    profile: Profile,
+}
+
+pub fn plan(args: &[String]) -> Result<Plan, Usage> {
     match args::parse(args) {
-        Ok(Invocation::FormatStdin(profile)) => {
-            let source = String::from_utf8_lossy(input);
-            match profile.format(&source) {
-                Ok(formatted) if formatted.as_bytes() == input => Outcome::Unchanged(formatted),
-                Ok(formatted) => Outcome::Changed(formatted),
-                Err(rejection) => Outcome::Rejected(format!(
-                    "jeer: {}:{}: {}\n",
-                    rejection.line, rejection.column, rejection.message
-                )),
-            }
-        }
-        Err(error) => Outcome::Usage(format!("jeer: {error}\n{}\n", args::USAGE)),
+        Ok(Invocation::FormatStdin(profile)) => Ok(Plan {
+            requests: vec![io::Request::Stdin],
+            profile,
+        }),
+        Err(error) => Err(Usage(format!("jeer: {error}\n{}\n", args::USAGE))),
+    }
+}
+
+pub fn run(plan: Plan, inputs: &io::Inputs) -> Outcome {
+    let source = String::from_utf8_lossy(&inputs.stdin);
+    match Pipeline::from(plan.profile).run(&source) {
+        Ok(formatted) if formatted.as_bytes() == inputs.stdin => Outcome::Unchanged(formatted),
+        Ok(formatted) => Outcome::Changed(formatted),
+        Err(rejection) => Outcome::Rejected(format!(
+            "jeer: {}:{}: {}\n",
+            rejection.line, rejection.column, rejection.message
+        )),
     }
 }
 
@@ -95,7 +116,14 @@ mod tests {
                 .map(|a| (*a).to_owned())
                 .collect();
 
-            let outcome = run(&args, input.as_bytes());
+            let outcome = plan(&args).map_or_else(Outcome::from, |plan| {
+                run(
+                    plan,
+                    &io::Inputs {
+                        stdin: input.as_bytes().to_vec(),
+                    },
+                )
+            });
 
             assert_eq!(outcome, expected, "{input:?}");
         }
@@ -113,7 +141,14 @@ mod tests {
                 .map(|a| (*a).to_owned())
                 .collect();
 
-            let outcome = run(&args, input.as_bytes());
+            let outcome = plan(&args).map_or_else(Outcome::from, |plan| {
+                run(
+                    plan,
+                    &io::Inputs {
+                        stdin: input.as_bytes().to_vec(),
+                    },
+                )
+            });
 
             assert_eq!(outcome, Outcome::Rejected(message.to_owned()), "{input:?}");
         }
@@ -126,7 +161,14 @@ mod tests {
             .map(|a| (*a).to_owned())
             .collect();
 
-        let outcome = run(&args, b"a\xff\n");
+        let outcome = plan(&args).map_or_else(Outcome::from, |plan| {
+            run(
+                plan,
+                &io::Inputs {
+                    stdin: b"a\xff\n".to_vec(),
+                },
+            )
+        });
 
         assert_eq!(outcome, Outcome::Changed("a\u{fffd}\n".to_owned()));
     }
@@ -143,7 +185,14 @@ mod tests {
         for (args, error) in cases {
             let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
 
-            let outcome = run(&args, b"");
+            let outcome = plan(&args).map_or_else(Outcome::from, |plan| {
+                run(
+                    plan,
+                    &io::Inputs {
+                        stdin: b"".to_vec(),
+                    },
+                )
+            });
 
             assert_eq!(
                 outcome,
