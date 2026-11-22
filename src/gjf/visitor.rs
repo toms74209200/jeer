@@ -156,7 +156,83 @@ impl<'a> Visitor<'a> {
         Ok(self.source[from..to].encode_utf16().count())
     }
 
+    pub(super) fn sync(&mut self, node: &Node) -> Result<(), Unformatted> {
+        let synced = matches!(
+            node.kind,
+            NodeKind::ImportDecl
+                | NodeKind::ClassDecl
+                | NodeKind::InterfaceDecl
+                | NodeKind::EnumDecl
+                | NodeKind::RecordDecl
+                | NodeKind::AnnotationTypeDecl
+                | NodeKind::Annotation
+                | NodeKind::ElementValuePair
+                | NodeKind::TypeParameter
+                | NodeKind::FieldDecl
+                | NodeKind::LocalVariableDecl
+                | NodeKind::FormalParameter
+                | NodeKind::MethodDecl
+                | NodeKind::ConstructorDecl
+                | NodeKind::CompactConstructorDecl
+                | NodeKind::PrimitiveType
+                | NodeKind::VoidType
+                | NodeKind::Initializer
+                | NodeKind::ClassType
+                | NodeKind::ArrayType
+                | NodeKind::Wildcard
+                | NodeKind::Block
+                | NodeKind::ExpressionStmt
+                | NodeKind::IfStmt
+                | NodeKind::WhileStmt
+                | NodeKind::DoStmt
+                | NodeKind::ForStmt
+                | NodeKind::ForEachStmt
+                | NodeKind::TryStmt
+                | NodeKind::CatchClause
+                | NodeKind::SwitchStmt
+                | NodeKind::SwitchRule
+                | NodeKind::SwitchGroup
+                | NodeKind::ReturnStmt
+                | NodeKind::BreakStmt
+                | NodeKind::ContinueStmt
+                | NodeKind::ThrowStmt
+                | NodeKind::YieldStmt
+                | NodeKind::SynchronizedStmt
+                | NodeKind::LabeledStmt
+                | NodeKind::AssertStmt
+                | NodeKind::EmptyStmt
+                | NodeKind::Literal
+                | NodeKind::Name
+                | NodeKind::FieldAccess
+                | NodeKind::MethodCall
+                | NodeKind::NewClass
+                | NodeKind::ArrayAccess
+                | NodeKind::Unary
+                | NodeKind::Postfix
+                | NodeKind::Binary
+                | NodeKind::InstanceOf
+                | NodeKind::Conditional
+                | NodeKind::Assignment
+                | NodeKind::Lambda
+                | NodeKind::Cast
+                | NodeKind::ClassLiteral
+                | NodeKind::This
+                | NodeKind::Super
+                | NodeKind::SwitchExpr
+                | NodeKind::TypePattern
+        );
+        let mut pending: Vec<&Element> = node.children.iter().rev().collect();
+        while let (true, Some(element)) = (synced, pending.pop()) {
+            match element {
+                Element::Token(token) => return self.builder.add(Op::Sync(token.start)),
+                Element::Node(child) => pending.extend(child.children.iter().rev()),
+            }
+        }
+        Ok(())
+    }
+
     fn scan(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        self.sync(node)?;
         match node.kind {
             NodeKind::ClassDecl | NodeKind::InterfaceDecl => self.class_declaration(node),
             NodeKind::EnumDecl => self.enum_declaration(node),

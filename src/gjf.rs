@@ -54,6 +54,14 @@ pub fn step(options: Options) -> impl Fn(&str) -> Result<String, Rejection> {
                 position: Position::Offset(offset),
                 message,
             }),
+            Err(Unformatted::RejectedAt {
+                line,
+                column,
+                message,
+            }) => Err(Rejection {
+                position: Position::LineColumn { line, column },
+                message,
+            }),
         }
     }
 }
@@ -63,12 +71,26 @@ fn format(source: &str, unit: &Unit) -> Result<String, Unformatted> {
     match cleaned == source {
         true => format_cleaned(source, unit),
         false => {
-            let reparsed =
-                crate::parser::parse(&cleaned).map_err(|error| Unformatted::Rejected {
-                    offset: error.offset,
-                    message: error.message,
-                })?;
-            format_cleaned(&cleaned, &reparsed)
+            let in_cleaned = |offset: usize, message: String| {
+                let before = &cleaned[..offset.min(cleaned.len())];
+                Unformatted::RejectedAt {
+                    line: before.matches('\n').count() + 1,
+                    column: before
+                        .rsplit('\n')
+                        .next()
+                        .map_or(0, |line| line.chars().count())
+                        + 1,
+                    message,
+                }
+            };
+            crate::parser::parse(&cleaned)
+                .map_err(|error| in_cleaned(error.offset, error.message))
+                .and_then(|reparsed| {
+                    format_cleaned(&cleaned, &reparsed).map_err(|error| match error {
+                        Unformatted::Rejected { offset, message } => in_cleaned(offset, message),
+                        Unformatted::Deferred | Unformatted::RejectedAt { .. } => error,
+                    })
+                })
         }
     }
 }
@@ -437,7 +459,9 @@ mod tests {
             let unit = parser::parse(input).ok();
 
             let message = match unit.map(|unit| format(input, &unit)) {
-                Some(Err(Unformatted::Rejected { message, .. })) => message,
+                Some(Err(
+                    Unformatted::Rejected { message, .. } | Unformatted::RejectedAt { message, .. },
+                )) => message,
                 Some(Ok(_) | Err(Unformatted::Deferred)) | None => String::new(),
             };
 
@@ -469,6 +493,126 @@ mod tests {
             let formatted = unit.map(|unit| format(input, &unit));
 
             assert_eq!(formatted, Some(Err(Unformatted::Deferred)), "{input}");
+        }
+    }
+
+    #[test]
+    fn when_gjf_pipeline_with_oracle_rejected_fixtures_then_returns_the_oracle_line() {
+        let cases = [
+            (
+                include_str!("../tests/fixtures/gjf/ident-illegal-arrow/input.java"),
+                include_str!("../tests/fixtures/gjf/ident-illegal-arrow/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/ident-illegal-bullet/input.java"),
+                include_str!("../tests/fixtures/gjf/ident-illegal-bullet/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/ident-illegal-ideographic-space/input.java"),
+                include_str!(
+                    "../tests/fixtures/gjf/ident-illegal-ideographic-space/expected.error"
+                ),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/ident-supplementary/input.java"),
+                include_str!("../tests/fixtures/gjf/ident-supplementary/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-bad-annotation/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-bad-annotation/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-broken-lambda/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-broken-lambda/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-case-without-switch/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-case-without-switch/expected.error"),
+            ),
+            (
+                include_str!(
+                    "../tests/fixtures/gjf/reject-cleanup-supplementary-separator/input.java"
+                ),
+                include_str!(
+                    "../tests/fixtures/gjf/reject-cleanup-supplementary-separator/expected.error"
+                ),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-else-without-if/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-else-without-if/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-escaped-char-literal/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-escaped-char-literal/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-escaped-comment/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-escaped-comment/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-escaped-identifier-part/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-escaped-identifier-part/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-escaped-identifier-start/input.java"),
+                include_str!(
+                    "../tests/fixtures/gjf/reject-escaped-identifier-start/expected.error"
+                ),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-escaped-keyword/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-escaped-keyword/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-escaped-operator/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-escaped-operator/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-escaped-whitespace/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-escaped-whitespace/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-extra-brace/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-extra-brace/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-illegal-escape/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-illegal-escape/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-malformed-generic/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-malformed-generic/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-missing-paren/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-missing-paren/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-position-after-cleanup/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-position-after-cleanup/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-position-later-line/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-position-later-line/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-unclosed-comment/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-unclosed-comment/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-unterminated-text-block/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-unterminated-text-block/expected.error"),
+            ),
+        ];
+        for (input, error) in cases {
+            let line =
+                crate::pipeline::Profile::Gjf.pipeline()(input).map_err(|rejection| rejection.line);
+            let expected = error
+                .strip_prefix('L')
+                .and_then(|rest| rest.split(' ').next())
+                .and_then(|line| line.parse::<usize>().ok());
+
+            assert_eq!(line.err(), expected, "{input}");
         }
     }
 }

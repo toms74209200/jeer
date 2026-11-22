@@ -8,14 +8,7 @@ use crate::steps;
 #[derive(Debug, PartialEq, Eq)]
 pub enum Position {
     Offset(usize),
-    #[expect(
-        dead_code,
-        reason = "gjf reports errors after its cleanups at a line and column of the cleaned text in task 118"
-    )]
-    LineColumn {
-        line: usize,
-        column: usize,
-    },
+    LineColumn { line: usize, column: usize },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -274,7 +267,29 @@ mod tests {
                 "import a.B;\r\nclass A{B b;}\r\n",
                 Ok("import a.B;\n\nclass A {\n  B b;\n}\n".to_owned()),
             ),
-            ("class A { int \\u0061b; }\n", Err((1, 15))),
+            ("class A { int \\u0061b; }\n", Err((1, 11))),
+            (
+                "class A {\n  @Deprecated\n  void\n      \\u006d() {}\n}\n",
+                Err((3, 3)),
+            ),
+            ("class A {\n  int x;\n  st\\u0061tic {}\n}\n", Err((3, 3))),
+            (
+                "class A {\n  @Deprecated\n  @Ov\\u0065rride\n  void m() {}\n}\n",
+                Err((3, 3)),
+            ),
+            (
+                "import a.B;\nimport \\u0063.D;\n\nclass A {\n  B b;\n  D d;\n}\n",
+                Err((2, 1)),
+            ),
+            (
+                "class A {\n  @S(x = 1,\n      \\u0079 = 2)\n  int a;\n}\n",
+                Err((3, 7)),
+            ),
+            ("class A<T,\n    \\u0055> {}\n", Err((2, 5))),
+            (
+                "class A {\n  void m(int a,\n      fin\\u0061l int b) {}\n}\n",
+                Err((3, 7)),
+            ),
             ("class A {}\r", Ok("class A {}\n".to_owned())),
             ("class A {", Err((1, 10))),
             ("class A {\r\nvoid é;\r\n}\r\n", Err((2, 7))),
