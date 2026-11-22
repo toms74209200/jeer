@@ -110,6 +110,7 @@ impl<'a> Visitor<'a> {
                     self.builder.add(Op::BlankLine(BlankLine::Yes))?;
                 }
                 self.builder.add(Op::BlankLine(BlankLine::Preserve))?;
+                self.sync(node)?;
                 let tokens = node
                     .children
                     .iter()
@@ -229,6 +230,7 @@ impl<'a> Visitor<'a> {
     }
 
     pub(super) fn annotation(&mut self, annotation: &'a Node) -> Result<(), Unformatted> {
+        self.sync(annotation)?;
         match annotation.children.as_slice() {
             [Element::Token(at), Element::Node(name)] => {
                 self.builder.add(OPEN_ZERO)?;
@@ -306,6 +308,7 @@ impl<'a> Visitor<'a> {
                                     }
                                 }
                                 Element::Node(pair) if pair.kind == NodeKind::ElementValuePair => {
+                                    self.sync(pair)?;
                                     let [
                                         Element::Token(key),
                                         Element::Token(equals),
@@ -463,6 +466,7 @@ impl<'a> Visitor<'a> {
                 }
                 Element::Token(close) => self.token(close, ZERO, None)?,
                 Element::Node(parameter) => {
+                    self.sync(parameter)?;
                     let [Element::Node(modifiers), Element::Token(name), bound @ ..] =
                         parameter.children.as_slice()
                     else {
@@ -896,6 +900,7 @@ impl<'a> Visitor<'a> {
                 if formal.kind != NodeKind::FormalParameter {
                     return Err(Unformatted::Deferred);
                 }
+                self.sync(formal)?;
                 self.declare_one(
                     Declaration::Parameter,
                     Direction::Horizontal,

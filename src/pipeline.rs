@@ -273,6 +273,19 @@ mod tests {
                 Err((3, 3)),
             ),
             ("class A {\n  int x;\n  st\\u0061tic {}\n}\n", Err((3, 3))),
+            (
+                "class A {\n  @Deprecated\n  @Ov\\u0065rride\n  void m() {}\n}\n",
+                Err((3, 3)),
+            ),
+            (
+                "import a.B;\nimport \\u0063.D;\n\nclass A {\n  B b;\n  D d;\n}\n",
+                Err((2, 1)),
+            ),
+            (
+                "class A {\n  @S(x = 1,\n      \\u0079 = 2)\n  int a;\n}\n",
+                Err((3, 7)),
+            ),
+            ("class A<T,\n    \\u0055> {}\n", Err((2, 5))),
             ("class A {}\r", Ok("class A {}\n".to_owned())),
             ("class A {", Err((1, 10))),
             ("class A {\r\nvoid é;\r\n}\r\n", Err((2, 7))),
