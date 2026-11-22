@@ -253,6 +253,9 @@ impl<'a> Visitor<'a> {
             NodeKind::DoStmt => self.do_statement(node),
             NodeKind::TryStmt => self.try_statement(node),
             NodeKind::SwitchStmt => self.switch_statement(node),
+            NodeKind::AssertStmt => self.assert_statement(node),
+            NodeKind::ThrowStmt => self.throw_statement(node),
+            NodeKind::SynchronizedStmt => self.synchronized_statement(node),
             NodeKind::LabeledStmt => self.labeled_statement(node),
             NodeKind::BreakStmt | NodeKind::ContinueStmt => self.jump_statement(node),
             NodeKind::EmptyStmt => match node.children.as_slice() {
@@ -416,10 +419,7 @@ impl<'a> Visitor<'a> {
             | NodeKind::SwitchGroup
             | NodeKind::SwitchLabel
             | NodeKind::Guard
-            | NodeKind::ThrowStmt
             | NodeKind::YieldStmt
-            | NodeKind::SynchronizedStmt
-            | NodeKind::AssertStmt
             | NodeKind::Arguments
             | NodeKind::NewClass
             | NodeKind::NewArray
