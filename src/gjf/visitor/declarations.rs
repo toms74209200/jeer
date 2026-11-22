@@ -527,6 +527,15 @@ impl<'a> Visitor<'a> {
         let mut last_got_blank = false;
         for member in members {
             self.builder.add(FORCED)?;
+            if member.kind == NodeKind::EmptyDecl {
+                for semicolon in &member.children {
+                    let Element::Token(semicolon) = semicolon else {
+                        return Err(Unformatted::Deferred);
+                    };
+                    self.token(semicolon, ZERO, None)?;
+                }
+                continue;
+            }
             let javadoc = self
                 .builder
                 .input
