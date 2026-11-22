@@ -1,3 +1,4 @@
+pub mod identifier;
 mod identifier_table;
 pub mod literal;
 pub mod scan;

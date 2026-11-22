@@ -124,40 +124,6 @@ impl<'a> Visitor<'a> {
         direction: Direction,
         tag: Option<super::super::doc::BreakTag>,
     ) -> Result<(), Unformatted> {
-        let order = [
-            "public",
-            "protected",
-            "private",
-            "abstract",
-            "default",
-            "static",
-            "sealed",
-            "non",
-            "final",
-            "transient",
-            "volatile",
-            "synchronized",
-            "native",
-            "strictfp",
-        ];
-        let mut rank = 0;
-        let mut previous = "";
-        for child in &modifiers.children {
-            let Element::Token(token) = child else {
-                rank = 0;
-                previous = "";
-                continue;
-            };
-            let text = &self.source[token.start..token.end];
-            let position = order.iter().position(|modifier| *modifier == text);
-            if let (Some(position), false) = (position, previous == "-") {
-                if position < rank {
-                    return Err(Unformatted::Deferred);
-                }
-                rank = position;
-            }
-            previous = text;
-        }
         let items = &modifiers.children;
         if items.is_empty() {
             return Ok(());
@@ -254,7 +220,14 @@ impl<'a> Visitor<'a> {
                     return Err(Unformatted::Deferred);
                 };
                 match values.as_slice() {
-                    [] => Err(Unformatted::Deferred),
+                    [] => {
+                        self.builder.add(OPEN_ZERO)?;
+                        self.token(at, ZERO, None)?;
+                        self.qualified_name(name)?;
+                        self.token(open, ZERO, None)?;
+                        self.token(close, ZERO, None)?;
+                        self.builder.add(CLOSE)
+                    }
                     [value] if value.kind != NodeKind::ElementValuePair => {
                         let array = value.kind == NodeKind::ElementValueArray;
                         match array {
@@ -539,7 +512,10 @@ impl<'a> Visitor<'a> {
                     return Err(Unformatted::Deferred);
                 };
                 let vertical = modifiers.children.iter().any(|modifier| {
-                    matches!(modifier, Element::Node(annotation) if annotation.children.len() > 2)
+                    matches!(modifier, Element::Node(annotation) if annotation.children.iter().any(|child| {
+                            matches!(child, Element::Node(arguments) if arguments.kind == NodeKind::AnnotationArguments
+                                && arguments.children.iter().any(|value| matches!(value, Element::Node(_))))
+                        }))
                 });
                 let direction = match vertical {
                     true => Direction::Vertical,
@@ -643,8 +619,7 @@ impl<'a> Visitor<'a> {
         self.builder.add(SPACE)?;
         self.token(open, ZERO, Some(PLUS_TWO))?;
         match (constants.is_empty() && members.is_empty(), semicolon) {
-            (true, Some(_)) => Err(Unformatted::Deferred),
-            (true, None) => {
+            (true, Some(_) | None) => {
                 self.builder.add(OPEN_ZERO)?;
                 self.builder.add(Op::BlankLine(BlankLine::No))?;
                 self.token(close, ZERO, None)?;

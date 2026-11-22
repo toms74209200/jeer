@@ -885,7 +885,11 @@ impl<'a> Visitor<'a> {
                 (NodeKind::Literal, [Element::Token(token)])
                     if token.kind == TokenKind::StringLiteral =>
                 {
-                    let decoded: Vec<char> = self.decoded_text(token).chars().collect();
+                    let decoded: Vec<char> = self
+                        .decoded
+                        .decoded(token.start, token.end)
+                        .chars()
+                        .collect();
                     let value = crate::lexer::literal::string_value(&decoded);
                     let chars: Vec<char> = value.chars().collect();
                     format |= value.contains('%')
@@ -1108,7 +1112,9 @@ impl<'a> Visitor<'a> {
                 let text: String = operator
                     .iter()
                     .filter_map(|element| match element {
-                        Element::Token(token) => Some(visitor.decoded_text(token)),
+                        Element::Token(token) => {
+                            Some(visitor.decoded.decoded(token.start, token.end))
+                        }
                         Element::Node(_) => None,
                     })
                     .collect();

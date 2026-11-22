@@ -6,6 +6,14 @@ pub struct Translated {
     pub offsets: Vec<usize>,
 }
 
+impl Translated {
+    pub fn decoded(&self, start: usize, end: usize) -> String {
+        let from = self.offsets.partition_point(|&offset| offset < start);
+        let to = self.offsets.partition_point(|&offset| offset < end);
+        self.chars[from..to.max(from)].iter().collect()
+    }
+}
+
 pub fn translate(source: &str) -> Result<Translated, LexError> {
     let bytes = source.as_bytes();
     let mut units: Vec<(u32, usize)> = Vec::with_capacity(source.len());
