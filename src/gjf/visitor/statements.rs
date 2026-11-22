@@ -46,7 +46,11 @@ impl<'a> Visitor<'a> {
                     .collect();
                 let parameterless = annotations
                     .iter()
-                    .filter(|annotation| annotation.children.len() == 2)
+                    .filter(|annotation| !annotation
+                            .children.iter().any(|child| {
+                            matches!(child, Element::Node(arguments) if arguments.kind == NodeKind::AnnotationArguments
+                                && arguments.children.iter().any(|value| matches!(value, Element::Node(_))))
+                        }))
                     .count();
                 let direction = match parameterless <= 1 && parameterless == annotations.len() {
                     true => Direction::Horizontal,

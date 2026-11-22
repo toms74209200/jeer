@@ -1,4 +1,5 @@
 pub mod builder;
+pub mod cleanups;
 pub mod comments;
 pub mod doc;
 pub mod input;
@@ -32,6 +33,21 @@ fn significant(node: &Node) -> Node {
 }
 
 pub fn format(source: &str, unit: &Unit) -> Result<String, Unformatted> {
+    let cleaned = cleanups::apply(source, unit)?;
+    match cleaned == source {
+        true => format_cleaned(source, unit),
+        false => {
+            let reparsed =
+                crate::parser::parse(&cleaned).map_err(|error| Unformatted::Rejected {
+                    offset: error.offset,
+                    message: error.message,
+                })?;
+            format_cleaned(&cleaned, &reparsed)
+        }
+    }
+}
+
+fn format_cleaned(source: &str, unit: &Unit) -> Result<String, Unformatted> {
     let input = input::build(source, &unit.tree.tokens());
     let javadoc = input.tokens.iter().any(|token| {
         token.before.iter().chain(&token.after).any(|tok| {
@@ -311,6 +327,26 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/expr-type-prefix-supplementary/input.java"),
                 include_str!("../tests/fixtures/gjf/expr-type-prefix-supplementary/expected.java"),
             ),
+            (
+                include_str!("../tests/fixtures/gjf/cleanup-annotation-parens/input.java"),
+                include_str!("../tests/fixtures/gjf/cleanup-annotation-parens/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/cleanup-empty-statements/input.java"),
+                include_str!("../tests/fixtures/gjf/cleanup-empty-statements/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/cleanup-member-semicolons/input.java"),
+                include_str!("../tests/fixtures/gjf/cleanup-member-semicolons/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/cleanup-modifier-order/input.java"),
+                include_str!("../tests/fixtures/gjf/cleanup-modifier-order/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/cleanup-top-level-semicolons/input.java"),
+                include_str!("../tests/fixtures/gjf/cleanup-top-level-semicolons/expected.java"),
+            ),
         ];
         for (input, expected) in cases {
             let unit = parser::parse(input).ok();
@@ -382,13 +418,7 @@ mod tests {
             "/// doc\nclass A {}\n",
             "record R(int x) {}\n",
             "class A { Runnable r = () -> {}; }\n",
-            "class A { static public int x; }\n",
-            "class A { volatile transient int x; }\n",
-            "@A() class A {}\n",
-            "class A {};\n",
-            "class A { void f() { ; } }\n",
             "class A { String s = \"\"\"\n  x\"\"\"; }\n",
-            "enum E { ; }\n",
             "class A { void f() { if (x) {} } }\n",
             "class A { Object o = new Object(); }\n",
             "class A { void f(A this) {} }\n",
