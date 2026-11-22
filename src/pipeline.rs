@@ -286,6 +286,10 @@ mod tests {
                 Err((3, 7)),
             ),
             ("class A<T,\n    \\u0055> {}\n", Err((2, 5))),
+            (
+                "class A {\n  void m(int a,\n      fin\\u0061l int b) {}\n}\n",
+                Err((3, 7)),
+            ),
             ("class A {}\r", Ok("class A {}\n".to_owned())),
             ("class A {", Err((1, 10))),
             ("class A {\r\nvoid é;\r\n}\r\n", Err((2, 7))),
