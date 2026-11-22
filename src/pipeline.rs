@@ -64,6 +64,40 @@ pub fn compose(steps: Vec<Step>) -> impl Fn(&str) -> Result<String, Located> {
     }
 }
 
+const MAX_CYCLE: usize = 10;
+
+pub fn padded_cell<F>(format: F) -> impl Fn(&str) -> Result<String, Located>
+where
+    F: Fn(&str) -> Result<String, Located>,
+{
+    move |source| {
+        let mut applied = vec![format(source)?];
+        loop {
+            let last = &applied[applied.len() - 1];
+            if applied.len() == 1 && last == source {
+                return Ok(source.to_owned());
+            }
+            if applied.len() == MAX_CYCLE {
+                return Ok(source.to_owned());
+            }
+            let next = format(last)?;
+            if next == *last {
+                return Ok(next);
+            }
+            if let Some(start) = applied.iter().position(|text| *text == next) {
+                let canonical = applied[start..].iter().min_by(|a, b| {
+                    a.encode_utf16()
+                        .count()
+                        .cmp(&b.encode_utf16().count())
+                        .then_with(|| a.encode_utf16().cmp(b.encode_utf16()))
+                });
+                return Ok(canonical.map_or(next.clone(), Clone::clone));
+            }
+            applied.push(next);
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Profile {
     Whitespace,
@@ -152,7 +186,7 @@ impl Profile {
 
 impl Profile {
     pub fn pipeline(self) -> impl Fn(&str) -> Result<String, Located> {
-        compose(self.steps())
+        padded_cell(compose(self.steps()))
     }
 }
 
@@ -290,5 +324,53 @@ mod tests {
 
             assert_eq!(profile, expected, "{name}");
         }
+    }
+
+    #[test]
+    fn when_padded_cell_with_each_kind_of_sequence_then_returns_its_canonical_form() {
+        let sequences: [(&str, &[&str], &str); 5] = [
+            ("a", &["a"], "a"),
+            ("a", &["b", "b"], "b"),
+            ("a", &["b", "c", "d", "d"], "d"),
+            ("a", &["bbb", "cc", "dddd", "cc"], "cc"),
+            (
+                "a",
+                &["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"],
+                "a",
+            ),
+        ];
+        for (source, outputs, expected) in sequences {
+            let calls = std::cell::Cell::new(0);
+            let format = |_: &str| {
+                let output = outputs[calls.get().min(outputs.len() - 1)];
+                calls.set(calls.get() + 1);
+                Ok(output.to_owned())
+            };
+
+            let canonical = padded_cell(format)(source);
+
+            assert_eq!(canonical, Ok(expected.to_owned()), "{outputs:?}");
+        }
+    }
+
+    #[test]
+    fn when_padded_cell_with_a_rejecting_pass_then_returns_the_rejection() {
+        let rejected = Located {
+            line: 1,
+            column: 1,
+            message: "bad".to_owned(),
+        };
+        let format = |text: &str| match text {
+            "a" => Ok("b".to_owned()),
+            _ => Err(Located {
+                line: 1,
+                column: 1,
+                message: "bad".to_owned(),
+            }),
+        };
+
+        let canonical = padded_cell(format)("a");
+
+        assert_eq!(canonical, Err(rejected));
     }
 }
