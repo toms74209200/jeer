@@ -80,41 +80,42 @@ impl Scanner<'_> {
         }
     }
 
-    fn body_semicolons(&mut self, body: &Node) {
+    fn body_semicolons(&mut self, body: &Node, owner: NodeKind) {
         let Some((start, end)) = span(body) else {
             return;
         };
         let mut spans: Vec<(usize, usize)> = Vec::new();
         let mut last_constant_end = start;
         let mut first_member_start = end;
-        let mut separator = None;
         for child in &body.children {
-            match child {
-                Element::Node(member) if member.kind != NodeKind::EmptyDecl => {
-                    let Some((low, high)) = span(member) else {
-                        continue;
-                    };
-                    spans.push((low, high));
-                    match member.kind == NodeKind::EnumConstant {
-                        true => last_constant_end = last_constant_end.max(high),
-                        false => first_member_start = first_member_start.min(low),
-                    }
-                }
-                Element::Node(_) => {}
-                Element::Token(token) => {
-                    if body.kind == NodeKind::EnumBody
-                        && token.kind == TokenKind::Punct(Punct::Semicolon)
-                        && separator.is_none()
-                    {
-                        separator = Some(token.start);
-                    }
-                }
+            let Element::Node(member) = child else {
+                continue;
+            };
+            if member.kind == NodeKind::EmptyDecl {
+                continue;
+            }
+            let Some((low, high)) = span(member) else {
+                continue;
+            };
+            spans.push((low, high));
+            match member.kind == NodeKind::EnumConstant {
+                true => last_constant_end = last_constant_end.max(high),
+                false => first_member_start = first_member_start.min(low),
             }
         }
-        if let (NodeKind::EnumBody, false, Some(semicolon)) =
-            (body.kind, spans.is_empty(), separator)
-            && (last_constant_end..first_member_start).contains(&semicolon)
-        {
+        let separator = self
+            .tokens
+            .iter()
+            .find(|token| {
+                token.kind == TokenKind::Punct(Punct::Semicolon)
+                    && (last_constant_end..first_member_start).contains(&token.start)
+            })
+            .map(|token| token.start);
+        if let (true, false, Some(semicolon)) = (
+            matches!(owner, NodeKind::EnumDecl | NodeKind::EnumConstant),
+            spans.is_empty(),
+            separator,
+        ) {
             spans.push((semicolon, semicolon + 1));
         }
         self.semicolons_outside(start, end, &spans);
@@ -148,7 +149,7 @@ impl Scanner<'_> {
                 Element::Node(_) | Element::Token(_) => None,
             });
             if let Some(body) = body {
-                self.body_semicolons(body);
+                self.body_semicolons(body, node.kind);
             }
         }
         let anonymous = matches!(node.kind, NodeKind::NewClass | NodeKind::EnumConstant);
@@ -157,7 +158,7 @@ impl Scanner<'_> {
                 continue;
             };
             if anonymous && child.kind == NodeKind::ClassBody {
-                self.body_semicolons(child);
+                self.body_semicolons(child, node.kind);
             }
             if child.kind == NodeKind::EmptyStmt
                 && matches!(node.kind, NodeKind::Block | NodeKind::SwitchGroup)
@@ -223,7 +224,7 @@ fn span(node: &Node) -> Option<(usize, usize)> {
     Some((first.start, last.end))
 }
 
-fn ast_cleanups(source: &str, unit: &Unit) -> String {
+pub fn ast_cleanups(source: &str, unit: &Unit) -> String {
     let tokens = unit.tree.tokens();
     let comments = tokens
         .iter()
@@ -246,8 +247,11 @@ fn ast_cleanups(source: &str, unit: &Unit) -> String {
     let mut cursor = 0;
     for &(start, end) in &scanner.deletions {
         cleaned.push_str(&source[cursor..start]);
-        let before = source[..start].chars().next_back();
-        let after = source[end..].chars().next();
+        let before = source[..start]
+            .chars()
+            .next_back()
+            .filter(|c| c.len_utf16() == 1);
+        let after = source[end..].chars().next().filter(|c| c.len_utf16() == 1);
         if let (Some(before), Some(after)) = (before, after)
             && identifier::class(before) != CharClass::Other
             && identifier::class(after) != CharClass::Other
@@ -260,13 +264,19 @@ fn ast_cleanups(source: &str, unit: &Unit) -> String {
     cleaned
 }
 
-fn reorder_modifiers(source: &str) -> Result<String, Unformatted> {
+pub fn reorder_modifiers(source: &str) -> Result<String, Unformatted> {
     let lexed = lexer::scan(source).map_err(|error| Unformatted::Rejected {
         offset: error.offset,
         message: error.kind.to_string(),
     })?;
     let input = input::build(source, &lexed.tokens);
     let tokens = &input.tokens;
+    let decoded = |tok: &input::Tok| -> String {
+        let offsets = &lexed.text.offsets;
+        let from = offsets.partition_point(|&offset| offset < tok.position);
+        let to = offsets.partition_point(|&offset| offset < tok.position + tok.text.len());
+        lexed.text.chars[from..to.max(from)].iter().collect()
+    };
     let order = [
         "public",
         "protected",
@@ -284,14 +294,14 @@ fn reorder_modifiers(source: &str) -> Result<String, Unformatted> {
         "strictfp",
     ];
     let modifier_at = |index: usize| -> (Option<(usize, usize, usize)>, usize) {
-        let text = tokens[index].tok.text.as_str();
+        let text = decoded(&tokens[index].tok);
         if text != "non" {
             let rank = order.iter().position(|name| *name == text);
             return (rank.map(|rank| (rank, index, index)), index + 1);
         }
         match (tokens.get(index + 1), tokens.get(index + 2)) {
-            (Some(dash), Some(last)) if dash.tok.text == "-" => {
-                let rank = match last.tok.text.as_str() {
+            (Some(dash), Some(last)) if decoded(&dash.tok) == "-" => {
+                let rank = match decoded(&last.tok).as_str() {
                     "sealed" => order.iter().position(|name| *name == "non-sealed"),
                     _ => None,
                 };
@@ -354,11 +364,6 @@ fn reorder_modifiers(source: &str) -> Result<String, Unformatted> {
     Ok(reordered)
 }
 
-pub fn apply(source: &str, unit: &Unit) -> Result<String, Unformatted> {
-    let cleaned = ast_cleanups(source, unit);
-    reorder_modifiers(&cleaned)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,6 +415,22 @@ mod tests {
                 "abstract non-sealed class C {}\n",
             ),
             (
+                "class A { static publi\\u0063 int x; }\n",
+                "class A { public static int x; }\n",
+            ),
+            (
+                "enum E { X { ; void f() {}; }; }\n",
+                "enum E { X { ; void f() {}}; }\n",
+            ),
+            (
+                "class A { @A\u{1d400}() int x; }\n",
+                "class A { @A\u{1d400} int x; }\n",
+            ),
+            (
+                "class A { @A\u{1d400}()int x; }\n",
+                "class A { @A\u{1d400}int x; }\n",
+            ),
+            (
                 "abstract non-sealed class C {}\n",
                 "abstract non-sealed class C {}\n",
             ),
@@ -421,7 +442,7 @@ mod tests {
         for (source, expected) in cases {
             let unit = parser::parse(source).ok();
 
-            let cleaned = unit.map(|unit| apply(source, &unit));
+            let cleaned = unit.map(|unit| reorder_modifiers(&ast_cleanups(source, &unit)));
 
             assert_eq!(cleaned, Some(Ok(expected.to_owned())), "{source:?}");
         }

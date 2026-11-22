@@ -33,7 +33,7 @@ fn significant(node: &Node) -> Node {
 }
 
 pub fn format(source: &str, unit: &Unit) -> Result<String, Unformatted> {
-    let cleaned = cleanups::apply(source, unit)?;
+    let cleaned = cleanups::reorder_modifiers(&cleanups::ast_cleanups(source, unit))?;
     match cleaned == source {
         true => format_cleaned(source, unit),
         false => {
@@ -347,6 +347,10 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/cleanup-top-level-semicolons/input.java"),
                 include_str!("../tests/fixtures/gjf/cleanup-top-level-semicolons/expected.java"),
             ),
+            (
+                include_str!("../tests/fixtures/gjf/cleanup-escaped-modifier/input.java"),
+                include_str!("../tests/fixtures/gjf/cleanup-escaped-modifier/expected.java"),
+            ),
         ];
         for (input, expected) in cases {
             let unit = parser::parse(input).ok();
@@ -393,6 +397,14 @@ mod tests {
             (
                 include_str!("../tests/fixtures/gjf/ident-supplementary/input.java"),
                 include_str!("../tests/fixtures/gjf/ident-supplementary/expected.error"),
+            ),
+            (
+                include_str!(
+                    "../tests/fixtures/gjf/reject-cleanup-supplementary-separator/input.java"
+                ),
+                include_str!(
+                    "../tests/fixtures/gjf/reject-cleanup-supplementary-separator/expected.error"
+                ),
             ),
         ];
         for (input, expected) in cases {
