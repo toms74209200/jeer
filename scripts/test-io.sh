@@ -18,7 +18,7 @@ fi
 
 printf 'class A {\n' | "$bin" --stdin --profile gjf >"$out/stdout" 2>"$out/stderr"
 status=$?
-if [ $status -ne 2 ] || [ -s "$out/stdout" ] || ! grep -qF 'jeer: 2:1:' "$out/stderr"; then
+if [ $status -ne 2 ] || [ -s "$out/stdout" ] || ! grep -qF 'jeer: 1:10:' "$out/stderr"; then
 	echo "FAIL rejection to stderr: exit $status, stderr $(head -c 200 "$out/stderr")"
 	failures=$((failures + 1))
 fi

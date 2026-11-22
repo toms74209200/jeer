@@ -245,7 +245,7 @@ mod tests {
                 "class A {\r\n  int x; // c\r\n}",
                 Ok("class A {\r\n  int x; // c\r\n}".to_owned()),
             ),
-            ("class A { int x = 1 }", Err((1, 21))),
+            ("class A { int x = 1 }", Err((1, 20))),
         ];
         for (source, expected) in cases {
             let formatted =
@@ -293,7 +293,7 @@ mod tests {
             ("class A {}\r", Ok("class A {}\n".to_owned())),
             ("class A {", Err((1, 10))),
             ("class A {\r\nvoid é;\r\n}\r\n", Err((2, 7))),
-            ("class A {\r\n\r\n\r\n  int x = 1 }", Err((4, 13))),
+            ("class A {\r\n\r\n\r\n  int x = 1 }", Err((4, 12))),
         ];
         for (source, expected) in cases {
             let formatted = Profile::Gjf.pipeline()(source).map_err(|r| (r.line, r.column));

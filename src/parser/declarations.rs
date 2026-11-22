@@ -364,7 +364,7 @@ impl Parser<'_> {
         loop {
             match self.kind(0) {
                 TokenKind::Punct(Punct::RBrace) => break,
-                TokenKind::Eof => return self.fail("'}' expected"),
+                TokenKind::Eof => return self.missing("'}' expected"),
                 _ => children.push(self.member(context)?),
             }
         }
@@ -404,7 +404,7 @@ impl Parser<'_> {
             loop {
                 match self.kind(0) {
                     TokenKind::Punct(Punct::RBrace) => break,
-                    TokenKind::Eof => return self.fail("'}' expected"),
+                    TokenKind::Eof => return self.missing("'}' expected"),
                     _ => children.push(self.member(TypeContext::Other)?),
                 }
             }
