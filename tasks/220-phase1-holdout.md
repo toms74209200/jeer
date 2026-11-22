@@ -8,4 +8,5 @@ The final goal: Phase 1 of design doc §4 is complete.
 - Every fixture passes with no `skip` marker left
 - The performance requirements of design doc §5 hold, as the benchmark of task 210 reports
 - README.md describes installation, the CLI and the configuration
+- docs/design.md §4 describes the googleJavaFormat() step as the oracle runs it, including whether long-string reflow is on, as decided in issue #21
 - `gjf::format` has no `Unformatted::Deferred` result: the `gjf` profile never falls back to the unchanged input
