@@ -6,4 +6,5 @@ after it, each with its own "Done when". A finding outside the task, such
 as a mismatch class for later, becomes a task file in the PR, not a change.
 - A task changes one bounded context (one module root, `src/<context>.rs` and `src/<context>/`) plus the fixtures and tests that judge it; a change that needs another context's internals is a task of its own
 - A task's PR stays small enough to review in one pass, a few hundred changed lines of src; when it grows past that, the rest becomes task files
-- A review judges the task's Done-when and the policies on the diff; mismatches outside the Done-when become task files instead of rounds of review'''
+- A review judges the task's Done-when and the policies on the diff; mismatches outside the Done-when become task files instead of rounds of review
+- A task's fixtures use only constructs of earlier tasks or of the task itself. When taking a task, check its fixtures first: one that needs a later task's construct moves to that task in its own commit, and a fixture of the task's own constructs alone takes its place'''

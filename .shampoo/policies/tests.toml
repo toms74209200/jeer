@@ -6,7 +6,8 @@ as possible.
 - DAMP over DRY: each test spells out its input and expectation, no shared helpers
 - A value whose content does not matter to the test is generated, not written as a literal (a property test over generated input, using only std)
 - A value that is itself the condition under test, such as a boundary, is a case in a table of cases iterated in one test
-- Arrange-Act-Assert'''
+- Arrange-Act-Assert
+- Before its first review, every path a diff adds is guarded by a committed passing test or named in a task file's Done-when: the author lists the paths of the whole diff, not one at a time across rounds'''
 example = '''
 ```rust
 #[test]
