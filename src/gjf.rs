@@ -480,7 +480,6 @@ mod tests {
             "record R(int x) {}\n",
             "class A { Runnable r = () -> {}; }\n",
             "class A { String s = \"\"\"\n  x\"\"\"; }\n",
-            "class A { void f() { if (x) {} } }\n",
             "class A { Object o = new Object(); }\n",
             "class A { void f(A this) {} }\n",
             "class A { int @B [] x; }\n",

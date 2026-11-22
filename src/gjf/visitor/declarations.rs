@@ -1,6 +1,7 @@
 use super::super::builder::{Op, Unformatted};
 use super::super::doc::{BreakMode, Indent};
 use super::super::output::BlankLine;
+use super::statements::Collapse;
 use super::{
     BREAK, CLOSE, Direction, FILL, FILL_SPACE, FORCED, MINUS_FOUR, MINUS_TWO, OPEN_PLUS_FOUR,
     OPEN_PLUS_TWO, OPEN_ZERO, PLUS_FOUR, PLUS_TWO, SPACE, SPACE_BREAK, Visitor, ZERO,
@@ -592,7 +593,7 @@ impl<'a> Visitor<'a> {
             self.token(modifier, ZERO, None)?;
             self.builder.add(SPACE)?;
         }
-        self.block(block)
+        self.block(block, Collapse::Never, BlankLine::No, BlankLine::No)
     }
 
     pub(super) fn enum_declaration(&mut self, node: &'a Node) -> Result<(), Unformatted> {

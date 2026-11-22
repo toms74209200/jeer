@@ -1,7 +1,7 @@
 mod cli;
 #[expect(
     dead_code,
-    reason = "statement headers, hugged lambdas and text blocks reach the visitor in tasks 120 to 150"
+    reason = "hugged lambdas and text blocks reach the visitor in tasks 130 and 150"
 )]
 mod gjf;
 mod io;
