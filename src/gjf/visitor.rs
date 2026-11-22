@@ -251,6 +251,7 @@ impl<'a> Visitor<'a> {
             NodeKind::ForStmt => self.for_statement(node),
             NodeKind::ForEachStmt => self.for_each_statement(node),
             NodeKind::DoStmt => self.do_statement(node),
+            NodeKind::TryStmt => self.try_statement(node),
             NodeKind::LabeledStmt => self.labeled_statement(node),
             NodeKind::BreakStmt | NodeKind::ContinueStmt => self.jump_statement(node),
             NodeKind::EmptyStmt => match node.children.as_slice() {
@@ -404,7 +405,6 @@ impl<'a> Visitor<'a> {
             | NodeKind::LocalVariableDecl
             | NodeKind::ForInit
             | NodeKind::ForUpdate
-            | NodeKind::TryStmt
             | NodeKind::ResourceSpecification
             | NodeKind::Resource
             | NodeKind::CatchClause

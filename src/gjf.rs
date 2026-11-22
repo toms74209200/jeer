@@ -342,6 +342,10 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/stmt-labels/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/stmt-try/input.java"),
+                include_str!("../tests/fixtures/gjf/stmt-try/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
