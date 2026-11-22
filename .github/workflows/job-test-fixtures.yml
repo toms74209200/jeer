@@ -17,6 +17,8 @@ jobs:
             target
             out/tools
           key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock', 'scripts/ast-grep.sh', 'scripts/cargo-llvm-cov.sh') }}
+      - name: Run io tests
+        run: scripts/test-io.sh
       - name: Run fixtures
         run: |
           scripts/test-fixtures.sh | tee fixtures.txt

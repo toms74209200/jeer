@@ -1,0 +1,5 @@
+rule = "The binary reads stdin, writes stdout and stderr, and reports a failing write with exit 3 through the io context (docs/design.md §7.1, docs/development.md §8.1)."
+check = "io"
+transitions = ["task", "pr"]
+paths = ["src/main.rs", "src/io.rs", "src/io/**", "src/cli.rs", "src/cli/**", "scripts/test-io.sh"]
+judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

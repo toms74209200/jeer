@@ -173,6 +173,7 @@ Every check is a script under `scripts/`, called directly (not through `make`, w
 | `scripts/check-commit.sh --rev <commit>` | Small | §8.2 |
 | `scripts/check-fixture-commit.sh --rev <commit>` | Small | §8.4 |
 | `scripts/test-fixtures.sh` | Medium | Every fixture without a skip marker passes, idempotently |
+| `scripts/test-io.sh` | Medium | The binary on real pipes: stdin to stdout, a rejection to stderr, and a failing stdout write (exit 3) |
 | `scripts/check-fixtures-oracle.sh` | Medium | Every expected output is the oracle's |
 | `scripts/corpus-diff.sh [dev\|holdout]` | Medium | Match against the oracle on a pinned corpus; fails on files that matched at the merge-base and no longer do |
 
