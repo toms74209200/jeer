@@ -1,11 +1,17 @@
 use std::collections::HashSet;
 
 use crate::lexer::token::{Keyword, Punct, Token, TokenClass, TokenKind};
-use crate::parser::{self, ParseError};
-use crate::syntax::{Element, Node, NodeKind};
+use crate::parser;
+use crate::parser::syntax::{Element, Node, NodeKind};
+use crate::pipeline::{Position, Rejection};
 
-pub fn apply(text: &str) -> Result<String, ParseError> {
-    let tree = parser::parse(text)?.tree;
+pub fn apply(text: &str) -> Result<String, Rejection> {
+    let tree = parser::parse(text)
+        .map_err(|e| Rejection {
+            position: Position::Offset(e.offset),
+            message: e.message,
+        })?
+        .tree;
     let mut used: HashSet<String> = HashSet::new();
     let mut package = String::new();
     let mut imports: Vec<&Node> = Vec::new();

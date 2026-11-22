@@ -5,7 +5,7 @@ mod statements;
 use super::builder::{Builder, Op, Unformatted};
 use super::doc::{BreakMode, Indent};
 use crate::lexer::token::{Token, TokenKind};
-use crate::syntax::{Element, Node, NodeKind};
+use crate::parser::syntax::{Element, Node, NodeKind};
 
 const ZERO: Indent = Indent::Const(0);
 const PLUS_TWO: Indent = Indent::Const(2);

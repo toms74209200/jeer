@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 
-pub struct ImportOrderError;
+use crate::pipeline::{Position, Rejection};
 
-pub fn apply(text: &str) -> Result<String, ImportOrderError> {
+pub fn apply(text: &str) -> Result<String, Rejection> {
     let java_whitespace = |c: char| {
         matches!(
             c,
@@ -130,7 +130,10 @@ pub fn apply(text: &str) -> Result<String, ImportOrderError> {
         }
     }
     if !text.ends_with('\n') {
-        out.pop().ok_or(ImportOrderError)?;
+        out.pop().ok_or_else(|| Rejection {
+            position: Position::Offset(0),
+            message: "import order failed".to_owned(),
+        })?;
     }
     Ok(out)
 }
