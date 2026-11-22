@@ -6,4 +6,6 @@ jeer reproduces the pinned oracle (Spotless 8.12.0 with google-java-format
 - No branch for a specific input, file or identifier: a fix is a rule that GJF also has. When a mismatch looks like a GJF bug, reproduce it and say so in the PR
 - Expected outputs come only from the oracle (`scripts/generate-fixture.sh`). A mismatch is fixed in jeer, never by editing an expected output
 - Adding fixtures is a task of its own (a spec change), merged before the implementation that passes them: new fixtures carry a `skip` marker, and the implementation deletes the markers it makes pass
-- Fixtures are our own minimal Java written for the construct under test, never copied from the corpus'''
+- Fixtures are our own minimal Java written for the construct under test, never copied from the corpus
+- A port of a list in the reference (GJF's `sync` calls, its visit methods, its cleanup passes) maps every entry in the PR body: the reference site, and the jeer site or why jeer never reaches it, so the review checks the mapping once
+- The spec is Spotless and the options of its steps. An option the pinned oracle profile leaves off is a task (an oracle profile, its fixtures, the port), never a question for the human'''

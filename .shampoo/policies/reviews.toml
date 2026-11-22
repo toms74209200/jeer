@@ -1,0 +1,6 @@
+review = true
+text = '''
+A review reports each class of finding whole, in one round.
+- When a finding is one case of a class (a node kind the port misses, a call site that skips a step, a task that spans two module roots), the reviewer checks the whole diff and the reference for that class and lists every case it finds
+- A later round reports what the last fix changed, or a class no earlier round reported; it does not report one more case of a class an earlier round already listed as complete
+- A finding names the reference it rests on (the oracle's output, a line of GJF or Spotless, a policy line), so the fix does not have to guess'''
