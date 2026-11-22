@@ -1,6 +1,6 @@
 # Add formatting only changed files
 
-Bounded context: `cli` (`src/cli.rs`, `src/cli/`), calling the changed-file listing of task 190 and the file reading and in-place writes of task 169.
+Bounded context: `cli` (`src/cli.rs`, `src/cli/`), which plans the `io::Request` for git's changed files (task 190) and returns the in-place writes `io` performs (task 169).
 
 Design doc §6.2: a mode that processes only the Java files changed according to `git diff`, writing back in place, never writing broken output.
 

@@ -158,18 +158,18 @@ Each box above is a context with one module root (`src/<context>.rs`, `src/<cont
 |---|---|---|
 | `lexer` | Unicode escapes, tokens, trivia | `scan(&str) -> Result<Lexed, LexError>` |
 | `parser` | The lossless CST | `parse(&str) -> Result<Unit, ParseError>` |
-| `steps` | One Spotless step per module (whitespace, importOrder, removeUnusedImports, toggleOffOn) | Each step is a `pipeline::Step` |
-| `gjf` | Spotless's `googleJavaFormat()` step as its glue runs it: cleanups, the formatter, RemoveUnusedImports, ImportOrderer, reflow, and the step's options | `gjf::step(options) -> pipeline::Step`; its staging (`Unformatted`) and its phases stay inside |
-| `pipeline` | The step type, composing steps in order, wrappers around a step (toggle fences, PaddedCell, tracing), the named profiles, placing a rejection at a line and column | `Step`, `Rejection`, `Pipeline::run(&str) -> Result<String, Located>` |
+| `steps` | One Spotless step per module (whitespace, importOrder, removeUnusedImports), the toggleOffOn fences, and the line-ending conversion they share | Each step module provides a `pipeline::Step`; `toggle::preserving` wraps a `Step` in a `Step` |
+| `gjf` | Spotless's `googleJavaFormat()` step as its glue runs it: cleanups, the formatter, RemoveUnusedImports, ImportOrderer, reflow, and the step's options | `gjf::step(Options) -> pipeline::Step`, with `Options::default()` as Spotless's defaults; its staging (`Unformatted`) and its phases stay inside |
+| `pipeline` | The step type, composing steps in order, the wrappers across steps (PaddedCell, tracing), the named profiles, placing a rejection at a line and column | `Step`, `Rejection`, `Pipeline::run(&str) -> Result<String, Located>` |
 | `config` | Reading a project's configuration into the steps it selects and their options | `parse(&str) -> Result<Spec, ConfigError>`; `pipeline` builds a `Pipeline` from a `Spec` |
-| `cli` | Arguments to an invocation, results to streams and exit codes; pure | `run(invocation inputs) -> Outcome` |
-| `io` | Every side effect: stdin, stdout, files, directory walks, git | Functions `src/main.rs` calls before and after `cli` |
-| `trace` | Spans and their records | `span(name, f)`, a wrapper any context composes around its own phase |
+| `cli` | Arguments to what to read, what was read to what to write; pure | `plan(args) -> Result<Plan, Usage>` names the inputs as `io::Request`s (stdin, paths, the configuration, a git revision); `run(Plan, Inputs) -> Outcome` gives the outputs, the files to write and the exit code |
+| `io` | The side effects of a run: stdin, stdout, files, directory walks, git | `Request` (what can be read), `read(&[Request]) -> Inputs` and `write(&Writes)`, which `src/main.rs` calls between `cli`'s two steps |
+| `trace` | Spans, their clocks and allocation counts, and their records; a side-effect module behind a cargo feature, compiled out without it | `span(name, f)`, a wrapper any context composes around its own phase |
 
 Rules that keep them bounded:
-- A step is a function from text to text or a rejection at an offset in that text: `Step = Box<dyn Fn(&str) -> Result<String, Rejection>>`. A context that adds a step, or changes what its step does, changes only itself.
+- A step is a function from text to text or a rejection: `Step = Box<dyn Fn(&str) -> Result<String, Rejection>>`. A rejection is at an offset in the step's input, or at a line and column the step reports itself (GJF reports errors after its cleanups in the cleaned text). A context that adds a step, or changes what its step does, changes only itself.
 - Behavior across steps (fences, fixed points, tracing, check mode) is a wrapper from a step to a step (composition), so it is added in `pipeline` or `trace` without changing a step.
-- `src/main.rs` is the imperative shell: `io` reads, `cli` decides, `io` writes. `cli` and every other context stay pure.
+- `src/main.rs` is the imperative shell: `cli::plan`, `io::read`, `cli::run`, `io::write`. Only `io` and `trace` have side effects (`scripts/side-effect-modules.txt`); `trace` records nothing unless its feature is on.
 - A context's internal types and staging never cross its root: `gjf` decides itself what to do with input it cannot format yet.
 
 ## 8. Parser

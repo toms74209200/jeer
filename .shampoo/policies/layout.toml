@@ -1,6 +1,6 @@
 review = true
 text = '''
-- `src/main.rs` declares the modules and only runs the program: it reads the arguments and stdin, calls the pure code, writes the result and exits with its code
+- `src/main.rs` declares the modules and only runs the program as docs/design.md §7.1's shell: `cli::plan`, `io::read`, `cli::run`, `io::write`, then exits with the code
 - Code lives in `src/<context>/`, one module per bounded context of docs/design.md §7.1, with `src/<context>.rs` as its root. A context exposes only the API listed there; its internal types never appear in another context, and behavior across contexts is a wrapper (composition), not an edit to each
 - Side effects (files, stdin/stdout, processes, environment, clocks) live in modules of their own, listed in `scripts/side-effect-modules.txt`; everything else is pure
 - One responsibility per file, named after it in snake_case

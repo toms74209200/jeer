@@ -6,6 +6,7 @@ Today `src/profile.rs` calls each step by hand and matches `gjf`'s internal `Unf
 
 ## Done when
 - `pipeline` defines `Step` and `Rejection` (an offset in the step's input and a message), composes steps in order, places a rejection at a line and column, and holds the named profiles as lists of steps
-- Every module in `steps` is a `Step`; `steps::toggle::preserving` is a wrapper from a step to a step
-- `gjf::step()` is a `Step` that parses its input itself and keeps `Unformatted` inside `gjf` (an input it defers comes back unchanged); nothing outside `gjf` names `Unformatted`
-- `src/profile.rs` is gone, `cli` runs a `pipeline` profile, and every fixture and small test passes unchanged
+- Each step module in `steps` provides a `Step`; `steps::toggle::preserving` wraps a `Step` in a `Step`
+- `Rejection` is at an offset in the step's input, or at a line and column the step reports itself
+- `gjf::step(Options)` is a `Step` (with `Options::default()`, empty until an option is ported) that parses its input itself and keeps `Unformatted` inside `gjf` (an input it defers comes back unchanged); nothing outside `gjf` names `Unformatted`
+- `src/profile.rs` is gone, `cli` runs a `pipeline` profile, split into `cli::plan` and `cli::run` as §7.1 describes, and every fixture and small test passes unchanged

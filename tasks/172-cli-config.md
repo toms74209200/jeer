@@ -1,6 +1,6 @@
 # Run the configured steps from the CLI
 
-Bounded context: `cli` (`src/cli.rs`, `src/cli/`), calling the pipeline built from a configuration (task 171) and the file reading of task 169; `src/main.rs` passes the configuration file from `io` to `cli`.
+Bounded context: `cli` (`src/cli.rs`, `src/cli/`), which plans an `io::Request` for the configuration file (task 169) and runs the pipeline built from it (task 171).
 
 The CLI loads the project's configuration and runs its steps; `--profile` stays for the fixtures.
 

@@ -6,4 +6,4 @@ Design doc §2 and §4: a project whose Spotless configuration turns on `googleJ
 
 ## Done when
 - `oracle/build.gradle.kts` has a profile `gjf-reflow` running `googleJavaFormat("2.0.0").reflowLongStrings()`, and fixtures for it in `tests/fixtures/gjf-reflow/` (long strings in arguments, assignments, returns and concatenations, and strings it leaves alone) are generated with `scripts/generate-fixture.sh` and carry `skip` markers
-- `gjf::step` takes options with `reflow_long_strings`, runs StringWrapper last when it is on, and a small test in `gjf` loads every `gjf-reflow` fixture and gets its expected output
+- `gjf::Options` gains `reflow_long_strings` (off by default), runs StringWrapper last when it is on, and a small test in `gjf` loads every `gjf-reflow` fixture and gets its expected output
