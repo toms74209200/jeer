@@ -3,4 +3,7 @@ Tasks are the files in tasks/, taken in the order of their names. A task
 that turns out too large for one reviewable PR is split: do the first part,
 and in the same PR add task files for the rest, named so they sort right
 after it, each with its own "Done when". A finding outside the task, such
-as a mismatch class for later, becomes a task file in the PR, not a change.'''
+as a mismatch class for later, becomes a task file in the PR, not a change.
+- A task changes one bounded context (one module root, `src/<context>.rs` and `src/<context>/`) plus the fixtures and tests that judge it; a change that needs another context's internals is a task of its own
+- A task's PR stays small enough to review in one pass, a few hundred changed lines of src; when it grows past that, the rest becomes task files
+- A review judges the task's Done-when and the policies on the diff; mismatches outside the Done-when become task files instead of rounds of review'''
