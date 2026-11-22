@@ -3,7 +3,7 @@ use super::super::doc::HeaderMark;
 use super::super::output::BlankLine;
 use super::declarations::{Declaration, field_annotation_direction};
 use super::{
-    CLOSE, Direction, FILL, FILL_SPACE, FORCED, OPEN_PLUS_FOUR, OPEN_PLUS_TWO, OPEN_ZERO,
+    BREAK, CLOSE, Direction, FILL, FILL_SPACE, FORCED, OPEN_PLUS_FOUR, OPEN_PLUS_TWO, OPEN_ZERO,
     PLUS_FOUR, PLUS_TWO, SPACE, SPACE_BREAK, Visitor, ZERO,
 };
 use crate::lexer::token::{Punct, Token, TokenKind};
@@ -714,6 +714,88 @@ impl<'a> Visitor<'a> {
             }
             (true, _) => Err(Unformatted::Deferred),
         }
+    }
+
+    pub(super) fn assert_statement(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let (keyword, condition, detail, semicolon) = match node.children.as_slice() {
+            [
+                Element::Token(keyword),
+                Element::Node(condition),
+                Element::Token(semicolon),
+            ] => (keyword, condition, None, semicolon),
+            [
+                Element::Token(keyword),
+                Element::Node(condition),
+                Element::Token(colon),
+                Element::Node(detail),
+                Element::Token(semicolon),
+            ] => (keyword, condition, Some((colon, detail)), semicolon),
+            _ => return Err(Unformatted::Deferred),
+        };
+        self.builder.add(OPEN_ZERO)?;
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        match detail {
+            Some(_) => self.builder.add(OPEN_PLUS_FOUR)?,
+            None => self.builder.add(OPEN_ZERO)?,
+        }
+        self.builder.add(Op::Fence)?;
+        self.scan(condition)?;
+        if let Some((colon, detail)) = detail {
+            self.builder.add(SPACE_BREAK)?;
+            self.token(colon, ZERO, None)?;
+            self.builder.add(SPACE)?;
+            self.scan(detail)?;
+        }
+        self.builder.add(CLOSE)?;
+        self.builder.add(CLOSE)?;
+        self.token(semicolon, ZERO, None)
+    }
+
+    pub(super) fn throw_statement(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [
+            Element::Token(keyword),
+            Element::Node(expression),
+            Element::Token(semicolon),
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        self.scan(expression)?;
+        self.token(semicolon, ZERO, None)
+    }
+
+    pub(super) fn synchronized_statement(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [
+            Element::Token(keyword),
+            Element::Node(condition),
+            Element::Node(block),
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let [
+            Element::Token(open),
+            Element::Node(inner),
+            Element::Token(close),
+        ] = condition.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        self.token(open, ZERO, None)?;
+        self.builder.add(Op::Header(HeaderMark::Start))?;
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        self.builder.add(BREAK)?;
+        self.scan(inner)?;
+        self.builder.add(CLOSE)?;
+        self.builder.add(Op::Header(HeaderMark::End))?;
+        self.token(close, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        self.scan(block)
     }
 
     pub(super) fn statements(&mut self, statements: &'a [Element]) -> Result<(), Unformatted> {
