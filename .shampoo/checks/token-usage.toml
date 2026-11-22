@@ -1,0 +1,2 @@
+command = "scripts/token-usage.sh"
+size = "small"

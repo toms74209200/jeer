@@ -4,5 +4,5 @@ A pull request is one task, on its own branch, made of minimal commits
 (docs/development.md §8.2).
 - Branch from the current master with `git switch -c <task file name>`
 - Every commit passes the checks on its own; one subject per commit, with the format of docs/development.md §8.2
-- The PR title follows the commit format; its body says what the task was, what was decided and the corpus match rate before and after (`scripts/corpus-diff.sh dev`)
+- The PR title follows the commit format; its body says what the task was, what was decided, the corpus match rate before and after (`scripts/corpus-diff.sh dev`) and the tokens the task spent (`scripts/token-usage.sh`: total, output, and tokens per changed line of src)
 - The pull request is done when its checks pass; shampoo merges it with a merge commit. Nothing skips CI and nothing pushes to master'''
