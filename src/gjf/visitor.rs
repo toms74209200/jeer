@@ -175,6 +175,8 @@ impl<'a> Visitor<'a> {
                 | NodeKind::ConstructorDecl
                 | NodeKind::CompactConstructorDecl
                 | NodeKind::PrimitiveType
+                | NodeKind::VoidType
+                | NodeKind::Initializer
                 | NodeKind::ClassType
                 | NodeKind::ArrayType
                 | NodeKind::Wildcard

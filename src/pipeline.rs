@@ -268,6 +268,11 @@ mod tests {
                 Ok("import a.B;\n\nclass A {\n  B b;\n}\n".to_owned()),
             ),
             ("class A { int \\u0061b; }\n", Err((1, 11))),
+            (
+                "class A {\n  @Deprecated\n  void\n      \\u006d() {}\n}\n",
+                Err((3, 3)),
+            ),
+            ("class A {\n  int x;\n  st\\u0061tic {}\n}\n", Err((3, 3))),
             ("class A {}\r", Ok("class A {}\n".to_owned())),
             ("class A {", Err((1, 10))),
             ("class A {\r\nvoid é;\r\n}\r\n", Err((2, 7))),
