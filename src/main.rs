@@ -15,16 +15,17 @@ use cli::{Outcome, Response};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let outcome = io::read(&[io::Request::Stdin])
-        .map_err(|io::Failure(e)| e)
-        .and_then(|inputs| {
+    let outcome = io::read(&[io::Request::Stdin]).map_or_else(
+        |io::Failure(e)| Outcome::Internal(format!("jeer: {e}\n")),
+        |inputs| {
             std::thread::Builder::new()
                 .stack_size(1 << 30)
                 .spawn(move || cli::run(&args, &inputs.stdin))
                 .map_err(|e| e.to_string())
                 .and_then(|worker| worker.join().map_err(|_| "panicked".to_owned()))
-        })
-        .unwrap_or_else(|e| Outcome::Internal(format!("jeer: internal error: {e}\n")));
+                .unwrap_or_else(|e| Outcome::Internal(format!("jeer: internal error: {e}\n")))
+        },
+    );
     let response = Response::from(outcome);
     let code = io::write(&io::Writes {
         stdout: &response.stdout,
@@ -32,8 +33,12 @@ fn main() {
     })
     .map_or_else(
         |io::Failure(e)| {
-            eprintln!("jeer: {e}");
-            Response::from(Outcome::Internal(String::new())).code
+            let internal = Response::from(Outcome::Internal(String::new())).code;
+            io::write(&io::Writes {
+                stdout: "",
+                stderr: &format!("jeer: {e}\n"),
+            })
+            .map_or(internal, |()| internal)
         },
         |()| response.code,
     );

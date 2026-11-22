@@ -33,6 +33,8 @@ pub fn write(writes: &Writes) -> Result<(), Failure> {
         .write_all(writes.stdout.as_bytes())
         .and_then(|()| std::io::stdout().flush())
         .map_err(|e| Failure(format!("cannot write stdout: {e}")));
-    eprint!("{}", writes.stderr);
-    stdout
+    let stderr = std::io::stderr()
+        .write_all(writes.stderr.as_bytes())
+        .map_err(|e| Failure(format!("cannot write stderr: {e}")));
+    stdout.and(stderr)
 }
