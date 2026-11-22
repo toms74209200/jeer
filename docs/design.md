@@ -156,8 +156,8 @@ Each box above is a context with one module root (`src/<context>.rs`, `src/<cont
 
 | Context | Owns | Public API |
 |---|---|---|
-| `lexer` | Unicode escapes, tokens, trivia | `scan(&str) -> Result<Lexed, LexError>` |
-| `parser` | The lossless CST | `parse(&str) -> Result<Unit, ParseError>` |
+| `lexer` | Unicode escapes, tokens, trivia, identifier characters | `scan(&str) -> Result<Lexed, LexError>`, and the types it returns: `Token`, `TokenKind`, `Keyword`, `Punct`, `TokenClass`, `identifier::CharClass`, `Translated` |
+| `parser` | The lossless CST and its types (`parser::syntax`) | `parse(&str) -> Result<Unit, ParseError>`, and the CST it returns: `Node`, `NodeKind`, `Element` |
 | `steps` | One Spotless step per module (whitespace, importOrder, removeUnusedImports), the toggleOffOn fences, and the line-ending conversion they share | Each step module provides a `pipeline::Step`; `toggle::preserving` wraps a `Step` in a `Step` |
 | `gjf` | Spotless's `googleJavaFormat()` step as its glue runs it: cleanups, the formatter, RemoveUnusedImports, ImportOrderer, reflow, and the step's options | `gjf::step(Options) -> pipeline::Step`, with `Options::default()` as Spotless's defaults; its staging (`Unformatted`) and its phases stay inside |
 | `pipeline` | The step type, composing steps in order, the wrappers across steps (PaddedCell, tracing), the named profiles, placing a rejection at a line and column | `Step`, `Rejection`, `Pipeline::run(&str) -> Result<String, Located>` |

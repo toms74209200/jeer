@@ -7,4 +7,4 @@ Decide design doc §6.4 (interpret the Spotless block, or a config file of our o
 ## Done when
 - The design doc's §6.4 and its "To decide" item are updated with the decision
 - The configuration parses into a type that lists the selected steps in order, and small tests cover parsing it and every error in it
-- Each step option the configuration accepts (such as `reflowLongStrings`, task 154) has an oracle profile in `oracle/build.gradle.kts`; an option of Spotless's steps that jeer does not reproduce yet is rejected with an error naming it, never silently ignored
+- The configuration accepts only step options that have an oracle profile already (`reflowLongStrings`, task 154-fixtures-reflow); an option of Spotless's steps that jeer does not reproduce yet is rejected with an error naming it, never silently ignored
