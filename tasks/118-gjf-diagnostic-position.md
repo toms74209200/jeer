@@ -9,4 +9,4 @@ Rejections after a cleanup (task 112) carry offsets in the cleaned text, while `
 ## Done when
 - The visitor records the start position of each node it syncs as JavaInputAstVisitor does, and rejections report that position
 - A rejection after a cleanup that changed the text reports the oracle's line and column, through the line-and-column `Rejection` of §7.1, so `pipeline` is unchanged
-- The fixtures of task 118-fixtures-diagnostic-position pass with their `skip` markers deleted, and small tests cover rejections whose failing token is on a later line than the node's start, and rejections in inputs that cleanups changed
+- `reject-position-later-line` and `reject-position-after-cleanup` (task 118-fixtures-diagnostic-position) pass with their `skip` markers deleted, with a small test that checks the line of every oracle-rejected fixture against the `L<line>` of its `expected.error`, and small tests cover rejections whose failing token is on a later line than the node's start, and rejections in inputs that cleanups changed
