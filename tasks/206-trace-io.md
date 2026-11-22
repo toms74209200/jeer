@@ -2,7 +2,7 @@
 
 Bounded context: `io` (`src/io.rs`, `src/io/`), calling the `trace` context of task 200.
 
-Design doc §10: the read and write spans.
+Design doc §10: the read and write spans, around the `io` functions of task 175, which also carry stdin and stdout.
 
 ## Done when
 - The context opens the read and write spans through `trace`, and a small test with the feature on sees their records

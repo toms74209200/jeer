@@ -8,4 +8,5 @@ Rejections after a cleanup (task 112) carry offsets in the cleaned text, while t
 
 ## Done when
 - The visitor records the start position of each node it syncs as JavaInputAstVisitor does, and rejections report that position
+- `gjf` maps a rejection's position back to an offset in the input `gjf::format` was given, so `Rejection::at` in `src/profile.rs` places it without change
 - Small tests cover rejections whose failing token is on a later line than the node's start, and rejections in inputs that cleanups changed

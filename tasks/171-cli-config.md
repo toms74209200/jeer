@@ -1,6 +1,6 @@
 # Run the configured steps from the CLI
 
-Bounded context: `cli` (`src/cli.rs`, `src/cli/`), calling the configuration of task 170.
+Bounded context: `cli` (`src/cli.rs`, `src/cli/`), calling the configuration of task 170 and the file reading of task 175.
 
 The CLI loads the project's configuration and runs its steps; `--profile` stays for the fixtures.
 
