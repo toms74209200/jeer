@@ -3,7 +3,8 @@ use super::super::doc::HeaderMark;
 use super::super::output::BlankLine;
 use super::declarations::Declaration;
 use super::{
-    CLOSE, Direction, FORCED, OPEN_PLUS_TWO, OPEN_ZERO, PLUS_TWO, SPACE, SPACE_BREAK, Visitor, ZERO,
+    CLOSE, Direction, FILL_SPACE, FORCED, OPEN_PLUS_FOUR, OPEN_PLUS_TWO, OPEN_ZERO, PLUS_TWO,
+    SPACE, SPACE_BREAK, Visitor, ZERO,
 };
 use crate::lexer::token::Token;
 
@@ -177,6 +178,238 @@ impl<'a> Visitor<'a> {
         self.builder.add(SPACE)?;
         self.header(condition)?;
         self.statement(body, Collapse::Empty, BlankLine::No)
+    }
+
+    pub(super) fn for_statement(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [
+            Element::Token(keyword),
+            Element::Token(open),
+            Element::Node(init),
+            Element::Token(first),
+            rest @ ..,
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let (condition, second, update, close, body) = match rest {
+            [
+                Element::Node(condition),
+                Element::Token(second),
+                Element::Node(update),
+                Element::Token(close),
+                Element::Node(body),
+            ] => (Some(condition), second, update, close, body),
+            [
+                Element::Token(second),
+                Element::Node(update),
+                Element::Token(close),
+                Element::Node(body),
+            ] => (None, second, update, close, body),
+            _ => return Err(Unformatted::Deferred),
+        };
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        self.token(open, ZERO, None)?;
+        self.builder.add(Op::Header(HeaderMark::Start))?;
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        self.builder.add(Op::Fence)?;
+        let expressions = init
+            .children
+            .iter()
+            .filter(|child| matches!(child, Element::Node(_)))
+            .count();
+        let declared = matches!(
+            init.children.as_slice(),
+            [Element::Node(Node {
+                kind: NodeKind::LocalVariableDecl,
+                ..
+            })]
+        );
+        match (declared, expressions > 1) {
+            (false, true) => self.builder.add(OPEN_PLUS_FOUR)?,
+            (false, false) | (true, _) => self.builder.add(OPEN_ZERO)?,
+        }
+        match init.children.as_slice() {
+            [] => self.token(first, ZERO, None)?,
+            [Element::Node(variable)] if declared => self.variable_list(
+                variable,
+                &variable.children,
+                first,
+                Declaration::Local,
+                Direction::Horizontal,
+            )?,
+            items => {
+                self.builder.add(OPEN_ZERO)?;
+                self.list(items, SPACE_BREAK)?;
+                self.token(first, ZERO, None)?;
+                self.builder.add(CLOSE)?;
+            }
+        }
+        self.builder.add(CLOSE)?;
+        self.builder.add(SPACE_BREAK)?;
+        if let Some(condition) = condition {
+            self.scan(condition)?;
+        }
+        self.token(second, ZERO, None)?;
+        let updates = update
+            .children
+            .iter()
+            .filter(|child| matches!(child, Element::Node(_)))
+            .count();
+        match updates {
+            0 => self.builder.add(SPACE)?,
+            count => {
+                self.builder.add(SPACE_BREAK)?;
+                match count == 1 {
+                    true => self.builder.add(OPEN_ZERO)?,
+                    false => self.builder.add(OPEN_PLUS_FOUR)?,
+                }
+                self.list(&update.children, FILL_SPACE)?;
+                self.builder.add(CLOSE)?;
+            }
+        }
+        self.builder.add(CLOSE)?;
+        self.builder.add(Op::Header(HeaderMark::End))?;
+        self.token(close, ZERO, None)?;
+        self.statement(body, Collapse::Empty, BlankLine::No)
+    }
+
+    fn list(&mut self, items: &'a [Element], separator: Op<'static>) -> Result<(), Unformatted> {
+        for item in items {
+            match item {
+                Element::Token(comma) => {
+                    self.token(comma, ZERO, None)?;
+                    self.builder.add(separator.clone())?;
+                }
+                Element::Node(expression) => self.scan(expression)?,
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn for_each_statement(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [
+            Element::Token(keyword),
+            Element::Token(open),
+            Element::Node(variable),
+            Element::Token(colon),
+            Element::Node(iterable),
+            Element::Token(close),
+            Element::Node(body),
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let [
+            Element::Node(modifiers),
+            Element::Node(ty),
+            Element::Token(name),
+            dims @ ..,
+        ] = variable.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        self.builder.add(OPEN_ZERO)?;
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        self.token(open, ZERO, None)?;
+        self.builder.add(Op::Header(HeaderMark::Start))?;
+        self.builder.add(OPEN_ZERO)?;
+        self.sync(variable)?;
+        self.declare_one(
+            Declaration::Local,
+            Direction::Horizontal,
+            modifiers,
+            ty,
+            None,
+            name,
+            dims,
+            Some((colon, iterable)),
+            None,
+        )?;
+        self.builder.add(CLOSE)?;
+        self.builder.add(Op::Header(HeaderMark::End))?;
+        self.token(close, ZERO, None)?;
+        self.builder.add(CLOSE)?;
+        self.statement(body, Collapse::Empty, BlankLine::No)
+    }
+
+    pub(super) fn do_statement(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [
+            Element::Token(keyword),
+            Element::Node(body),
+            Element::Token(word),
+            Element::Node(condition),
+            Element::Token(semicolon),
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let [
+            Element::Token(open),
+            Element::Node(inner),
+            Element::Token(close),
+        ] = condition.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        self.token(keyword, ZERO, None)?;
+        self.statement(body, Collapse::Empty, BlankLine::Preserve)?;
+        match body.kind == NodeKind::Block {
+            true => self.builder.add(SPACE)?,
+            false => self.builder.add(SPACE_BREAK)?,
+        }
+        self.token(word, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        self.token(open, ZERO, None)?;
+        self.scan(inner)?;
+        self.token(close, ZERO, None)?;
+        self.token(semicolon, ZERO, None)
+    }
+
+    pub(super) fn labeled_statement(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [
+            Element::Token(label),
+            Element::Token(colon),
+            Element::Node(statement),
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        self.builder.add(OPEN_ZERO)?;
+        self.token(label, ZERO, None)?;
+        self.token(colon, ZERO, None)?;
+        self.builder.add(FORCED)?;
+        self.builder.add(CLOSE)?;
+        self.scan(statement)
+    }
+
+    pub(super) fn jump_statement(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let (keyword, label, semicolon) = match node.children.as_slice() {
+            [Element::Token(keyword), Element::Token(semicolon)] => (keyword, None, semicolon),
+            [
+                Element::Token(keyword),
+                Element::Token(label),
+                Element::Token(semicolon),
+            ] => (keyword, Some(label), semicolon),
+            _ => return Err(Unformatted::Deferred),
+        };
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        self.token(keyword, ZERO, None)?;
+        if let Some(label) = label {
+            self.builder.add(SPACE_BREAK)?;
+            self.token(label, ZERO, None)?;
+        }
+        match node.kind == NodeKind::BreakStmt {
+            true => {
+                self.builder.add(CLOSE)?;
+                self.token(semicolon, ZERO, None)
+            }
+            false => {
+                self.token(semicolon, ZERO, None)?;
+                self.builder.add(CLOSE)
+            }
+        }
     }
 
     pub(super) fn statements(&mut self, statements: &'a [Element]) -> Result<(), Unformatted> {

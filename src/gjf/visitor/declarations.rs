@@ -1009,13 +1009,26 @@ impl<'a> Visitor<'a> {
         declaration: Declaration,
         direction: Direction,
     ) -> Result<(), Unformatted> {
+        let [declared @ .., Element::Token(semicolon)] = node.children.as_slice() else {
+            return Err(Unformatted::Deferred);
+        };
+        self.variable_list(node, declared, semicolon, declaration, direction)
+    }
+
+    pub(super) fn variable_list(
+        &mut self,
+        node: &'a Node,
+        declared: &'a [Element],
+        semicolon: &'a Token,
+        declaration: Declaration,
+        direction: Direction,
+    ) -> Result<(), Unformatted> {
         self.sync(node)?;
         let [
             Element::Node(modifiers),
             Element::Node(ty),
             declarators @ ..,
-            Element::Token(semicolon),
-        ] = node.children.as_slice()
+        ] = declared
         else {
             return Err(Unformatted::Deferred);
         };
@@ -1085,7 +1098,7 @@ impl<'a> Visitor<'a> {
         clippy::too_many_arguments,
         reason = "the arguments are those of google-java-format's declareOne"
     )]
-    fn declare_one(
+    pub(super) fn declare_one(
         &mut self,
         declaration: Declaration,
         direction: Direction,

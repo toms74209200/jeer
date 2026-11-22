@@ -248,6 +248,11 @@ impl<'a> Visitor<'a> {
             NodeKind::Block => self.block(node, Collapse::Never, BlankLine::No, BlankLine::No),
             NodeKind::IfStmt => self.if_statement(node),
             NodeKind::WhileStmt => self.while_statement(node),
+            NodeKind::ForStmt => self.for_statement(node),
+            NodeKind::ForEachStmt => self.for_each_statement(node),
+            NodeKind::DoStmt => self.do_statement(node),
+            NodeKind::LabeledStmt => self.labeled_statement(node),
+            NodeKind::BreakStmt | NodeKind::ContinueStmt => self.jump_statement(node),
             NodeKind::EmptyStmt => match node.children.as_slice() {
                 [Element::Token(semicolon)] => {
                     self.builder.add(FORCED)?;
@@ -397,11 +402,8 @@ impl<'a> Visitor<'a> {
             | NodeKind::Dimension
             | NodeKind::TypeArguments
             | NodeKind::LocalVariableDecl
-            | NodeKind::DoStmt
-            | NodeKind::ForStmt
             | NodeKind::ForInit
             | NodeKind::ForUpdate
-            | NodeKind::ForEachStmt
             | NodeKind::TryStmt
             | NodeKind::ResourceSpecification
             | NodeKind::Resource
@@ -414,12 +416,9 @@ impl<'a> Visitor<'a> {
             | NodeKind::SwitchGroup
             | NodeKind::SwitchLabel
             | NodeKind::Guard
-            | NodeKind::BreakStmt
-            | NodeKind::ContinueStmt
             | NodeKind::ThrowStmt
             | NodeKind::YieldStmt
             | NodeKind::SynchronizedStmt
-            | NodeKind::LabeledStmt
             | NodeKind::AssertStmt
             | NodeKind::Arguments
             | NodeKind::NewClass
