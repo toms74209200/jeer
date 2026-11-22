@@ -1,0 +1,2 @@
+command = "scripts/check-skip-markers.sh"
+size = "medium"
