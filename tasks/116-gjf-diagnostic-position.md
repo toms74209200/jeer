@@ -1,5 +1,7 @@
 # Report google-java-format's errors at its position
 
+Bounded context: `gjf` (`src/gjf/`).
+
 LayoutBuilder.diagnostic reports a FormattingError at inputPosition, the start of the last node the visitor synced (`sync(node)`), not at the token that failed to match. jeer reports an "expected token" rejection at the next input token, so the line can differ (`int\n      \u0061b;`: the oracle reports line 2, jeer line 3).
 
 Rejections after a cleanup (task 112) carry offsets in the cleaned text, while the profile locates them in the input it was given; GJF reports them against the cleaned contents too, so the line can differ from the input's.
