@@ -156,7 +156,7 @@ Each box above is a context with one module root (`src/<context>.rs`, `src/<cont
 
 | Context | Owns | Public API |
 |---|---|---|
-| `lexer` | Unicode escapes, tokens, trivia, identifier characters | `scan(&str) -> Result<Lexed, LexError>`, and the types it returns: `Token`, `TokenKind`, `Keyword`, `Punct`, `TokenClass`, `identifier::CharClass`, `Translated` |
+| `lexer` | Unicode escapes, tokens, trivia, identifier characters | `scan(&str) -> Result<Lexed, LexError>`, and the types it returns: `Token`, `TokenKind`, `Keyword`, `Punct`, `TokenClass`, `identifier::{CharClass, class}`, `literal::string_value`, `Translated` with its `decoded` |
 | `parser` | The lossless CST and its types (`parser::syntax`) | `parse(&str) -> Result<Unit, ParseError>`, and the CST it returns: `Node`, `NodeKind`, `Element` |
 | `steps` | One Spotless step per module (whitespace, importOrder, removeUnusedImports), the toggleOffOn fences, and the line-ending conversion they share | Each step module provides a `pipeline::Step`; `toggle::preserving` wraps a `Step` in a `Step` |
 | `gjf` | Spotless's `googleJavaFormat()` step as its glue runs it: cleanups, the formatter, RemoveUnusedImports, ImportOrderer, reflow, and the step's options | `gjf::step(Options) -> pipeline::Step`, with `Options::default()` as Spotless's defaults; its staging (`Unformatted`) and its phases stay inside |
@@ -169,7 +169,7 @@ Each box above is a context with one module root (`src/<context>.rs`, `src/<cont
 Rules that keep them bounded:
 - A step is a function from text to text or a rejection: `Step = Box<dyn Fn(&str) -> Result<String, Rejection>>`. A rejection is at an offset in the step's input, or at a line and column the step reports itself (GJF reports errors after its cleanups in the cleaned text). A context that adds a step, or changes what its step does, changes only itself.
 - Behavior across steps (fences, fixed points, tracing, check mode) is a wrapper from a step to a step (composition), so it is added in `pipeline` or `trace` without changing a step.
-- `src/main.rs` is the imperative shell: `cli::plan`, `io::read`, `cli::run`, `io::write`. Only `io` and `trace` have side effects (`scripts/side-effect-modules.txt`); `trace` records nothing unless its feature is on.
+- `src/main.rs` is the imperative shell: `cli::plan`, `io::read`, `cli::run`, `io::write`, wrapped in `trace`'s process span. Only `io` and `trace` have side effects (`scripts/side-effect-modules.txt`); `trace` records nothing unless its feature is on.
 - A context's internal types and staging never cross its root: `gjf` decides itself what to do with input it cannot format yet.
 
 ## 8. Parser
