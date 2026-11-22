@@ -500,6 +500,14 @@ mod tests {
     fn when_gjf_pipeline_with_oracle_rejected_fixtures_then_returns_the_oracle_line() {
         let cases = [
             (
+                include_str!("../tests/fixtures/gjf/reject-missing-semicolon/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-missing-semicolon/expected.error"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-unbalanced-brace/input.java"),
+                include_str!("../tests/fixtures/gjf/reject-unbalanced-brace/expected.error"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/ident-illegal-arrow/input.java"),
                 include_str!("../tests/fixtures/gjf/ident-illegal-arrow/expected.error"),
             ),

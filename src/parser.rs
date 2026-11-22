@@ -99,6 +99,19 @@ impl Parser<'_> {
         })
     }
 
+    fn missing<T>(&self, expected: &str) -> Result<T, ParseError> {
+        let offset = self
+            .pos
+            .checked_sub(1)
+            .and_then(|previous| self.significant.get(previous))
+            .and_then(|&index| self.tokens.get(index))
+            .map_or(0, |token| token.end);
+        Err(ParseError {
+            offset,
+            message: expected.to_owned(),
+        })
+    }
+
     fn trivia(&mut self, out: &mut Vec<Element>) {
         let index = self
             .significant
@@ -126,7 +139,7 @@ impl Parser<'_> {
                 self.bump(out);
                 Ok(())
             }
-            false => self.fail(&format!("{kind:?} expected")),
+            false => self.missing(&format!("{kind:?} expected")),
         }
     }
 
@@ -608,7 +621,7 @@ import a.B;"#,
             (r#"class A {"#, 9),
             (r#"class A { void f() {"#, 20),
             (r#"enum E { A"#, 10),
-            (r#"class A { int x = 1 }"#, 20),
+            (r#"class A { int x = 1 }"#, 19),
             (r#"module m { bad x; }"#, 11),
             (r#"module m { provides A B; }"#, 22),
             (r#"class A { void f() { case 1: } }"#, 21),
@@ -616,7 +629,7 @@ import a.B;"#,
             (r#"class A { void f() { x = ; } }"#, 25),
             (r#"class A { void f() { switch (x) { case 1 x(); } } }"#, 41),
             (r#"class A { void f() { switch (x) { foo; } } }"#, 34),
-            (r#"class A { void f() { switch (x) { case 1: f(); "#, 47),
+            (r#"class A { void f() { switch (x) { case 1: f(); "#, 46),
             (r#"class 1 {}"#, 6),
             (r#"@ int x;"#, 2),
             (r#"class A<T> { List<T x; }"#, 20),
