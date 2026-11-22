@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::doc::{Break, BreakMode, BreakTag, Doc, Group, Indent};
+use super::doc::{Break, BreakMode, BreakTag, Doc, Group, HeaderMark, Indent};
 use super::input::{CommentKind, Input, Tok, TokKind, Token};
 use super::output::BlankLine;
 
@@ -29,6 +29,7 @@ pub enum Op<'s> {
     Fence,
     BlankLine(BlankLine),
     Sync(usize),
+    Header(HeaderMark),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +60,7 @@ enum Event<'a> {
     Tok(&'a Tok),
     Space,
     Fence,
+    Header(HeaderMark),
 }
 
 enum Item {
@@ -118,6 +120,7 @@ impl<'a> Builder<'a> {
             Op::Space => self.events.push(Event::Space),
             Op::Sync(position) => self.input_position = self.input_position.max(position),
             Op::Fence => self.events.push(Event::Fence),
+            Op::Header(mark) => self.events.push(Event::Header(mark)),
             Op::Token {
                 text,
                 comments_indent,
@@ -335,14 +338,15 @@ impl<'a> Builder<'a> {
                 | Event::Close
                 | Event::Token { .. }
                 | Event::Tok(_)
-                | Event::Fence => false,
+                | Event::Fence
+                | Event::Header(_) => false,
             };
             if after_forced && space_like {
                 continue;
             }
             spliced.push(event.clone());
             match event {
-                Event::Open(_) | Event::Fence => {}
+                Event::Open(_) | Event::Fence | Event::Header(_) => {}
                 Event::Close
                 | Event::Break(_)
                 | Event::Token { .. }
@@ -393,6 +397,10 @@ impl<'a> Builder<'a> {
                 }
                 Event::Space => levels[append].items.push(Item::Doc(Doc::Space)),
                 Event::Fence => {}
+                Event::Header(mark) => {
+                    let innermost = *stack.last().ok_or(unbalanced.clone())?;
+                    levels[innermost].items.push(Item::Doc(Doc::Header(mark)));
+                }
             }
         }
         if stack.len() != 1 {

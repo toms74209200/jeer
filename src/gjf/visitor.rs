@@ -4,8 +4,10 @@ mod statements;
 
 use super::builder::{Builder, Op, Unformatted};
 use super::doc::{BreakMode, Indent};
+use super::output::BlankLine;
 use crate::lexer::token::{Token, TokenKind};
 use crate::parser::syntax::{Element, Node, NodeKind};
+use statements::Collapse;
 
 const ZERO: Indent = Indent::Const(0);
 const PLUS_TWO: Indent = Indent::Const(2);
@@ -243,7 +245,16 @@ impl<'a> Visitor<'a> {
                 [Element::Node(declaration)] => self.scan(declaration),
                 _ => Err(Unformatted::Deferred),
             },
-            NodeKind::Block => self.block(node),
+            NodeKind::Block => self.block(node, Collapse::Never, BlankLine::No, BlankLine::No),
+            NodeKind::IfStmt => self.if_statement(node),
+            NodeKind::WhileStmt => self.while_statement(node),
+            NodeKind::EmptyStmt => match node.children.as_slice() {
+                [Element::Token(semicolon)] => {
+                    self.builder.add(FORCED)?;
+                    self.token(semicolon, ZERO, None)
+                }
+                _ => Err(Unformatted::Deferred),
+            },
             NodeKind::ReturnStmt => self.return_statement(node),
             NodeKind::ExpressionStmt => self.expression_statement(node),
             NodeKind::Annotation => self.annotation(node),
@@ -386,8 +397,6 @@ impl<'a> Visitor<'a> {
             | NodeKind::Dimension
             | NodeKind::TypeArguments
             | NodeKind::LocalVariableDecl
-            | NodeKind::IfStmt
-            | NodeKind::WhileStmt
             | NodeKind::DoStmt
             | NodeKind::ForStmt
             | NodeKind::ForInit
@@ -412,7 +421,6 @@ impl<'a> Visitor<'a> {
             | NodeKind::SynchronizedStmt
             | NodeKind::LabeledStmt
             | NodeKind::AssertStmt
-            | NodeKind::EmptyStmt
             | NodeKind::Arguments
             | NodeKind::NewClass
             | NodeKind::NewArray
