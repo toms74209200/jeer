@@ -7,7 +7,7 @@ as possible.
 - A value whose content does not matter to the test is generated, not written as a literal (a property test over generated input, using only std)
 - A value that is itself the condition under test, such as a boundary, is a case in a table of cases iterated in one test
 - Arrange-Act-Assert
-- Before its first review, every path a diff adds is guarded by a committed passing test or named in a task file's Done-when: the author lists the paths of the whole diff, not one at a time across rounds'''
+- Every code path a diff adds (a branch, a match arm, a visit method) is guarded by a committed passing test. The implementing commit's body lists each such path with the test or fixture that guards it, so the review checks the list against the diff once'''
 example = '''
 ```rust
 #[test]
