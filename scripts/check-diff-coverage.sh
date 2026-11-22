@@ -5,13 +5,15 @@ root=$(git rev-parse --show-toplevel) || exit 2
 cd "$root" || exit 2
 base=$(git merge-base HEAD origin/master 2>/dev/null || git merge-base HEAD master) || exit 2
 mkdir -p out || exit 2
-newest=$(find src -name '*.rs' -newer out/small.lcov 2>/dev/null | head -1)
-if [ ! -e out/small.lcov ] || [ -n "$newest" ]; then
-	scripts/test-small.sh >/dev/null 2>&1
-	status=$?
-	[ $status -eq 0 ] || exit $status
-fi
-{ git diff -U0 "$base" -- 'src/*.rs' || exit 2; git ls-files --others --exclude-standard -- 'src/*.rs' | while read -r file; do git diff -U0 --no-index /dev/null "$file"; done; } >out/diff-coverage.diff
+scripts/test-small.sh >/dev/null 2>&1
+status=$?
+[ $status -eq 0 ] || exit $status
+untracked=$(git ls-files --others --exclude-standard -- 'src/*.rs') || exit 2
+git diff -U0 "$base" -- 'src/*.rs' >out/diff-coverage.diff || exit 2
+for file in $untracked; do
+	git diff -U0 --no-index /dev/null "$file" >>out/diff-coverage.diff
+	[ $? -le 1 ] || exit 2
+done
 python3 -I - out/diff-coverage.diff out/small.lcov scripts/side-effect-modules.txt "$root" <<'PY'
 import re
 import sys
@@ -49,10 +51,13 @@ uncovered = []
 for path, lines in sorted(added.items()):
     if any(path == entry or (entry.endswith("/") and path.startswith(entry)) for entry in side_effects):
         continue
+    if path not in counts:
+        uncovered.append("%s: no small test runs this file (it is not in out/small.lcov)" % path)
+        continue
     source = open(path).read().split("\n")
     tests = next((index + 1 for index, text in enumerate(source) if text.strip() == "#[cfg(test)]"), len(source) + 1)
     for number in lines:
-        if number < tests and counts.get(path, {}).get(number) == 0:
+        if number < tests and counts[path].get(number) == 0:
             uncovered.append("%s:%d: %s" % (path, number, source[number - 1].strip()))
 for entry in uncovered:
     print(entry)

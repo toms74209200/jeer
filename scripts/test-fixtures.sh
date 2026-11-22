@@ -11,10 +11,17 @@ trap 'rm -rf "$out"' EXIT
 failures=0
 passed=0
 skipped=0
-for dir in tests/fixtures/*/*/; do
+if [ $# -gt 0 ]; then
+	dirs=("$@")
+	judge_skipped=true
+else
+	dirs=(tests/fixtures/*/*/)
+	judge_skipped=false
+fi
+for dir in "${dirs[@]}"; do
 	dir=${dir%/}
 	[ -e "$dir/input.java" ] || continue
-	if [ -e "$dir/skip" ]; then
+	if [ -e "$dir/skip" ] && [ "$judge_skipped" = false ]; then
 		skipped=$((skipped + 1))
 		continue
 	fi
