@@ -2,6 +2,7 @@ pub mod builder;
 pub mod cleanups;
 pub mod comments;
 pub mod doc;
+pub mod imports;
 pub mod input;
 pub mod output;
 pub mod visitor;
@@ -15,6 +16,7 @@ use crate::lexer::token::TokenClass;
 use crate::parser::syntax::{Element, Node};
 use crate::parser::{self, Unit};
 use crate::pipeline::{Position, Rejection};
+use crate::steps;
 
 fn significant(node: &Node) -> Node {
     let mut children = Vec::new();
@@ -44,7 +46,9 @@ pub fn step(options: Options) -> impl Fn(&str) -> Result<String, Rejection> {
             message: e.message,
         })?;
         match format(text, &unit) {
-            Ok(formatted) => Ok(formatted),
+            Ok(formatted) => {
+                steps::unused_imports::apply(&formatted).and_then(|used| imports::reorder(&used))
+            }
             Err(Unformatted::Deferred) => Ok(text.to_owned()),
             Err(Unformatted::Rejected { offset, message }) => Err(Rejection {
                 position: Position::Offset(offset),
@@ -447,7 +451,6 @@ mod tests {
     #[test]
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
-            "import a.B;\nclass A {}\n",
             "/** doc */\nclass A {}\n",
             "/// doc\nclass A {}\n",
             "record R(int x) {}\n",

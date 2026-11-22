@@ -55,23 +55,7 @@ enum Piece {
     Comment(CommentKind),
 }
 
-pub fn build(text: &str, tokens: &[LexToken]) -> Input {
-    let param_comment = |text: &str| {
-        text.strip_prefix("/*")
-            .and_then(|t| t.strip_suffix("*/"))
-            .and_then(|inner| {
-                inner
-                    .trim_end_matches([' ', '\t', '\n', '\u{b}', '\u{c}', '\r'])
-                    .strip_suffix('=')
-            })
-            .is_some_and(|before| {
-                !before.is_empty()
-                    && before.chars().all(|c| {
-                        c.is_ascii_alphanumeric()
-                            || matches!(c, '_' | '-' | ' ' | '\t' | '\n' | '\u{b}' | '\u{c}' | '\r')
-                    })
-            })
-    };
+pub fn toks(text: &str, tokens: &[LexToken]) -> Vec<Tok> {
     let utf16 = |s: &str| s.encode_utf16().count();
     let characters = |original: &str, start: usize| -> Vec<(String, usize, Piece)> {
         let mut pieces = Vec::new();
@@ -157,6 +141,27 @@ pub fn build(text: &str, tokens: &[LexToken]) -> Input {
         column,
         kind: TokKind::Token(numbered),
     });
+    toks
+}
+
+pub fn build(text: &str, tokens: &[LexToken]) -> Input {
+    let param_comment = |text: &str| {
+        text.strip_prefix("/*")
+            .and_then(|t| t.strip_suffix("*/"))
+            .and_then(|inner| {
+                inner
+                    .trim_end_matches([' ', '\t', '\n', '\u{b}', '\u{c}', '\r'])
+                    .strip_suffix('=')
+            })
+            .is_some_and(|before| {
+                !before.is_empty()
+                    && before.chars().all(|c| {
+                        c.is_ascii_alphanumeric()
+                            || matches!(c, '_' | '-' | ' ' | '\t' | '\n' | '\u{b}' | '\u{c}' | '\r')
+                    })
+            })
+    };
+    let toks = toks(text, tokens);
 
     let line_count = match (text.is_empty(), text.ends_with('\n')) {
         (true, _) => 0,

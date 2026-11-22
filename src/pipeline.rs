@@ -225,8 +225,8 @@ mod tests {
                 Ok("class A {\n  int x;\n}\n".to_owned()),
             ),
             (
-                "import a.B;\r\nclass A{}\r\n",
-                Ok("import a.B;\nclass A{}\n".to_owned()),
+                "import a.B;\r\nclass A{B b;}\r\n",
+                Ok("import a.B;\n\nclass A {\n  B b;\n}\n".to_owned()),
             ),
             ("class A { int \\u0061b; }\n", Err((1, 15))),
             ("class A {}\r", Ok("class A {}\n".to_owned())),

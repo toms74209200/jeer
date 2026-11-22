@@ -2,7 +2,8 @@ src/cli/args.rs	parse	3
 src/gjf/builder.rs	build	18
 src/gjf/comments.rs	rewrite	5
 src/gjf/doc.rs	group	4
-src/gjf/input.rs	build	10
+src/gjf/input.rs	build	6
+src/gjf/input.rs	toks	4
 src/gjf/visitor/declarations.rs	compilation_unit	3
 src/gjf/visitor/declarations.rs	enum_declaration	4
 src/gjf/visitor/declarations.rs	method	3
