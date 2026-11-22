@@ -1,0 +1,1185 @@
+use super::super::builder::{Op, Unformatted};
+use super::super::doc::{BreakMode, Indent};
+use super::super::output::BlankLine;
+use super::{
+    BREAK, CLOSE, Direction, FILL, FILL_SPACE, FORCED, MINUS_FOUR, MINUS_TWO, OPEN_PLUS_FOUR,
+    OPEN_PLUS_TWO, OPEN_ZERO, PLUS_FOUR, PLUS_TWO, SPACE, SPACE_BREAK, Visitor, ZERO,
+};
+use crate::lexer::token::{Keyword, Punct, Token, TokenKind};
+use crate::syntax::{Element, Node, NodeKind};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Declaration {
+    Local,
+    Field,
+    Parameter,
+}
+
+fn optional(rest: &[Element], kind: NodeKind) -> (Option<&Node>, &[Element]) {
+    match rest {
+        [Element::Node(node), tail @ ..] if node.kind == kind => (Some(node), tail),
+        rest => (None, rest),
+    }
+}
+
+struct Declarator<'a> {
+    name: &'a Token,
+    dims: &'a [Element],
+    initializer: Option<(&'a Token, &'a Node)>,
+}
+
+fn declarator(node: &Node) -> Result<Declarator<'_>, Unformatted> {
+    let [Element::Token(name), rest @ ..] = node.children.as_slice() else {
+        return Err(Unformatted::Deferred);
+    };
+    let (dims, initializer) = match rest {
+        [dims @ .., Element::Token(equals), Element::Node(value)] => (dims, Some((equals, value))),
+        dims => (dims, None),
+    };
+    Ok(Declarator {
+        name,
+        dims,
+        initializer,
+    })
+}
+
+impl<'a> Visitor<'a> {
+    pub fn compilation_unit(&mut self, unit: &'a Node) -> Result<(), Unformatted> {
+        let implicit = unit.children.iter().any(|child| {
+            matches!(
+                child,
+                Element::Node(Node {
+                    kind: NodeKind::MethodDecl | NodeKind::FieldDecl | NodeKind::Initializer,
+                    ..
+                })
+            )
+        });
+        let mut after_first = false;
+        let mut members = Vec::new();
+        for child in &unit.children {
+            let Element::Node(node) = child else {
+                return Err(Unformatted::Deferred);
+            };
+            if implicit && node.kind != NodeKind::PackageDecl {
+                members.push(node);
+                continue;
+            }
+            if node.kind == NodeKind::PackageDecl {
+                let [
+                    Element::Node(modifiers),
+                    Element::Token(keyword),
+                    Element::Node(name),
+                    Element::Token(semicolon),
+                ] = node.children.as_slice()
+                else {
+                    return Err(Unformatted::Deferred);
+                };
+                let mut annotated = false;
+                for annotation in &modifiers.children {
+                    let Element::Node(annotation) = annotation else {
+                        return Err(Unformatted::Deferred);
+                    };
+                    self.builder.add(FORCED)?;
+                    self.annotation(annotation)?;
+                    annotated = true;
+                }
+                if annotated {
+                    self.builder.add(FORCED)?;
+                }
+                self.builder.add(OPEN_PLUS_FOUR)?;
+                self.token(keyword, ZERO, None)?;
+                self.builder.add(SPACE)?;
+                for part in &name.children {
+                    let Element::Token(part) = part else {
+                        return Err(Unformatted::Deferred);
+                    };
+                    self.token(part, ZERO, None)?;
+                }
+                self.builder.add(CLOSE)?;
+                self.token(semicolon, ZERO, None)?;
+            } else {
+                if after_first {
+                    self.builder.add(Op::BlankLine(BlankLine::Yes))?;
+                }
+                self.scan(node)?;
+            }
+            self.builder.add(FORCED)?;
+            after_first = true;
+        }
+        if !members.is_empty() {
+            if after_first {
+                self.builder.add(Op::BlankLine(BlankLine::Yes))?;
+            }
+            self.builder.add(Op::Open(MINUS_TWO))?;
+            self.members(&members, |_| Some(BlankLine::Preserve))?;
+            self.builder.add(CLOSE)?;
+            self.builder.add(FORCED)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn modifiers(
+        &mut self,
+        modifiers: &'a Node,
+        direction: Direction,
+        tag: Option<super::super::doc::BreakTag>,
+    ) -> Result<(), Unformatted> {
+        let order = [
+            "public",
+            "protected",
+            "private",
+            "abstract",
+            "default",
+            "static",
+            "sealed",
+            "non",
+            "final",
+            "transient",
+            "volatile",
+            "synchronized",
+            "native",
+            "strictfp",
+        ];
+        let mut rank = 0;
+        let mut previous = "";
+        for child in &modifiers.children {
+            let Element::Token(token) = child else {
+                rank = 0;
+                previous = "";
+                continue;
+            };
+            let text = &self.source[token.start..token.end];
+            let position = order.iter().position(|modifier| *modifier == text);
+            if let (Some(position), false) = (position, previous == "-") {
+                if position < rank {
+                    return Err(Unformatted::Deferred);
+                }
+                rank = position;
+            }
+            previous = text;
+        }
+        let items = &modifiers.children;
+        if items.is_empty() {
+            return Ok(());
+        }
+        let separator = match direction {
+            Direction::Vertical => Op::Break {
+                mode: BreakMode::Forced,
+                flat: "",
+                plus_indent: ZERO,
+                tag,
+            },
+            Direction::Horizontal => Op::Break {
+                mode: BreakMode::Unified,
+                flat: " ",
+                plus_indent: ZERO,
+                tag,
+            },
+        };
+        self.builder.add(OPEN_ZERO)?;
+        let mut index = 0;
+        while let Some(Element::Node(annotation)) = items.get(index) {
+            if index > 0 {
+                self.builder.add(separator.clone())?;
+            }
+            self.annotation(annotation)?;
+            index += 1;
+        }
+        self.builder.add(CLOSE)?;
+        if index == items.len() {
+            return self.builder.add(separator);
+        }
+        if index > 0 {
+            self.builder.add(separator)?;
+        }
+        self.builder.add(OPEN_ZERO)?;
+        let mut first = true;
+        while let Some(item) = items.get(index) {
+            if !first {
+                self.builder.add(OPEN_ZERO)?;
+                self.builder.add(FILL_SPACE)?;
+                self.builder.add(CLOSE)?;
+            }
+            match item {
+                Element::Token(token) if &self.source[token.start..token.end] == "non" => {
+                    for part in items.get(index..index + 3).ok_or(Unformatted::Deferred)? {
+                        let Element::Token(part) = part else {
+                            return Err(Unformatted::Deferred);
+                        };
+                        self.token(part, ZERO, None)?;
+                    }
+                    index += 3;
+                }
+                Element::Token(token) => {
+                    self.token(token, ZERO, None)?;
+                    index += 1;
+                }
+                Element::Node(annotation) => {
+                    self.annotation(annotation)?;
+                    index += 1;
+                }
+            }
+            first = false;
+        }
+        self.builder.add(CLOSE)?;
+        self.builder.add(OPEN_ZERO)?;
+        self.builder.add(FILL_SPACE)?;
+        self.builder.add(CLOSE)
+    }
+
+    pub(super) fn annotation(&mut self, annotation: &'a Node) -> Result<(), Unformatted> {
+        match annotation.children.as_slice() {
+            [Element::Token(at), Element::Node(name)] => {
+                self.builder.add(OPEN_ZERO)?;
+                self.token(at, ZERO, None)?;
+                self.qualified_name(name)?;
+                self.builder.add(CLOSE)
+            }
+            [
+                Element::Token(at),
+                Element::Node(name),
+                Element::Node(arguments),
+            ] => {
+                let values: Vec<&Node> = arguments
+                    .children
+                    .iter()
+                    .filter_map(|child| match child {
+                        Element::Node(node) => Some(node),
+                        Element::Token(_) => None,
+                    })
+                    .collect();
+                let (Some(Element::Token(open)), Some(Element::Token(close))) =
+                    (arguments.children.first(), arguments.children.last())
+                else {
+                    return Err(Unformatted::Deferred);
+                };
+                match values.as_slice() {
+                    [] => Err(Unformatted::Deferred),
+                    [value] if value.kind != NodeKind::ElementValuePair => {
+                        let array = value.kind == NodeKind::ElementValueArray;
+                        match array {
+                            true => self.builder.add(OPEN_ZERO)?,
+                            false => self.builder.add(OPEN_PLUS_FOUR)?,
+                        }
+                        self.token(at, ZERO, None)?;
+                        self.qualified_name(name)?;
+                        self.token(open, ZERO, None)?;
+                        if !array {
+                            self.builder.add(BREAK)?;
+                        }
+                        self.element(value, Some(1))?;
+                        self.builder.add(CLOSE)?;
+                        self.token(close, ZERO, None)
+                    }
+                    _ => {
+                        let has_array = values.iter().any(|value| {
+                            value.kind == NodeKind::ElementValuePair
+                                && matches!(
+                                    value.children.last(),
+                                    Some(Element::Node(Node {
+                                        kind: NodeKind::ElementValueArray,
+                                        ..
+                                    }))
+                                )
+                        });
+                        self.builder.add(OPEN_ZERO)?;
+                        self.token(at, ZERO, None)?;
+                        self.qualified_name(name)?;
+                        self.builder.add(OPEN_PLUS_FOUR)?;
+                        self.token(open, ZERO, None)?;
+                        self.builder.add(BREAK)?;
+                        for child in &arguments.children[1..arguments.children.len() - 1] {
+                            match child {
+                                Element::Token(comma) => {
+                                    self.token(comma, ZERO, None)?;
+                                    match has_array {
+                                        true => self.builder.add(FORCED)?,
+                                        false => self.builder.add(SPACE_BREAK)?,
+                                    }
+                                }
+                                Element::Node(pair) if pair.kind == NodeKind::ElementValuePair => {
+                                    let [
+                                        Element::Token(key),
+                                        Element::Token(equals),
+                                        Element::Node(value),
+                                    ] = pair.children.as_slice()
+                                    else {
+                                        return Err(Unformatted::Deferred);
+                                    };
+                                    let array = value.kind == NodeKind::ElementValueArray;
+                                    match array {
+                                        true => self.builder.add(OPEN_ZERO)?,
+                                        false => self.builder.add(OPEN_PLUS_FOUR)?,
+                                    }
+                                    self.token(key, ZERO, None)?;
+                                    self.builder.add(SPACE)?;
+                                    self.token(equals, ZERO, None)?;
+                                    match array {
+                                        true => self.builder.add(SPACE)?,
+                                        false => self.builder.add(SPACE_BREAK)?,
+                                    }
+                                    self.element(value, Some(1))?;
+                                    self.builder.add(CLOSE)?;
+                                }
+                                Element::Node(value) => self.element(value, Some(1))?,
+                            }
+                        }
+                        self.token(close, ZERO, None)?;
+                        self.builder.add(CLOSE)?;
+                        self.builder.add(CLOSE)
+                    }
+                }
+            }
+            _ => Err(Unformatted::Deferred),
+        }
+    }
+
+    pub(super) fn class_declaration(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [
+            Element::Node(modifiers),
+            Element::Token(keyword),
+            Element::Token(name),
+            rest @ ..,
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let (type_parameters, rest) = optional(rest, NodeKind::TypeParameters);
+        let (extends, rest) = optional(rest, NodeKind::ExtendsClause);
+        let (implements, rest) = optional(rest, NodeKind::ImplementsClause);
+        let (permits, rest) = optional(rest, NodeKind::PermitsClause);
+        let [Element::Node(body)] = rest else {
+            return Err(Unformatted::Deferred);
+        };
+        let (superclass, interfaces) = match keyword.kind == TokenKind::Keyword(Keyword::Interface)
+        {
+            true => (None, extends),
+            false => (extends, implements),
+        };
+        self.modifiers(modifiers, Direction::Vertical, None)?;
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        self.token(name, ZERO, None)?;
+        if let Some(Element::Token(open)) = type_parameters.and_then(|tp| tp.children.first()) {
+            self.token(open, ZERO, None)?;
+        }
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        if let Some(type_parameters) = type_parameters {
+            let indent = match (superclass, interfaces, permits) {
+                (None, None, None) => ZERO,
+                _ => PLUS_FOUR,
+            };
+            self.type_parameters_rest(type_parameters, indent)?;
+        }
+        if let Some(clause) = superclass {
+            let [Element::Token(keyword), Element::Node(ty)] = clause.children.as_slice() else {
+                return Err(Unformatted::Deferred);
+            };
+            self.builder.add(FILL_SPACE)?;
+            self.token(keyword, ZERO, None)?;
+            self.builder.add(SPACE)?;
+            self.scan(ty)?;
+        }
+        for clause in [interfaces, permits].into_iter().flatten() {
+            let types = clause
+                .children
+                .iter()
+                .filter(|child| matches!(child, Element::Node(_)))
+                .count();
+            self.builder.add(FILL_SPACE)?;
+            match types > 1 {
+                true => self.builder.add(OPEN_PLUS_FOUR)?,
+                false => self.builder.add(OPEN_ZERO)?,
+            }
+            for (index, child) in clause.children.iter().enumerate() {
+                match child {
+                    Element::Token(keyword) if index == 0 => {
+                        self.token(keyword, ZERO, None)?;
+                        self.builder.add(SPACE)?;
+                    }
+                    Element::Token(comma) => {
+                        self.token(comma, ZERO, None)?;
+                        self.builder.add(SPACE_BREAK)?;
+                    }
+                    Element::Node(ty) => self.scan(ty)?,
+                }
+            }
+            self.builder.add(CLOSE)?;
+        }
+        self.builder.add(CLOSE)?;
+        self.class_body(body)
+    }
+
+    fn class_body(&mut self, body: &'a Node) -> Result<(), Unformatted> {
+        let [Element::Token(open), members @ .., Element::Token(close)] = body.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let mut nodes = Vec::new();
+        for member in members {
+            let Element::Node(member) = member else {
+                return Err(Unformatted::Deferred);
+            };
+            nodes.push(member);
+        }
+        self.builder.add(SPACE)?;
+        self.token(open, ZERO, Some(PLUS_TWO))?;
+        match nodes.is_empty() {
+            true => {
+                self.builder.add(Op::BlankLine(BlankLine::No))?;
+                self.builder.add(OPEN_ZERO)?;
+            }
+            false => {
+                self.builder.add(OPEN_ZERO)?;
+                self.members(&nodes, |_| Some(BlankLine::Preserve))?;
+                self.builder.add(Op::BlankLine(BlankLine::No))?;
+            }
+        }
+        self.token(close, PLUS_TWO, None)?;
+        self.builder.add(CLOSE)
+    }
+
+    pub(super) fn type_parameters_rest(
+        &mut self,
+        type_parameters: &'a Node,
+        plus_indent: Indent,
+    ) -> Result<(), Unformatted> {
+        self.builder.add(Op::Open(plus_indent))?;
+        self.builder.add(BREAK)?;
+        self.builder.add(OPEN_ZERO)?;
+        for child in type_parameters.children.iter().skip(1) {
+            match child {
+                Element::Token(comma) if comma.kind == TokenKind::Punct(Punct::Comma) => {
+                    self.token(comma, ZERO, None)?;
+                    self.builder.add(SPACE_BREAK)?;
+                }
+                Element::Token(close) => self.token(close, ZERO, None)?,
+                Element::Node(parameter) => {
+                    let [Element::Node(modifiers), Element::Token(name), bound @ ..] =
+                        parameter.children.as_slice()
+                    else {
+                        return Err(Unformatted::Deferred);
+                    };
+                    self.builder.add(OPEN_ZERO)?;
+                    for (index, annotation) in modifiers.children.iter().enumerate() {
+                        let Element::Node(annotation) = annotation else {
+                            return Err(Unformatted::Deferred);
+                        };
+                        if index > 0 {
+                            self.builder.add(FILL_SPACE)?;
+                        }
+                        self.annotation(annotation)?;
+                    }
+                    if !modifiers.children.is_empty() {
+                        self.builder.add(FILL_SPACE)?;
+                    }
+                    self.token(name, ZERO, None)?;
+                    if let [Element::Node(bound)] = bound {
+                        let [Element::Token(extends), types @ ..] = bound.children.as_slice()
+                        else {
+                            return Err(Unformatted::Deferred);
+                        };
+                        self.builder.add(SPACE)?;
+                        self.token(extends, ZERO, None)?;
+                        self.builder.add(OPEN_PLUS_FOUR)?;
+                        self.builder.add(SPACE_BREAK)?;
+                        self.builder.add(OPEN_PLUS_FOUR)?;
+                        for child in types {
+                            match child {
+                                Element::Token(amp) => {
+                                    self.builder.add(FILL_SPACE)?;
+                                    self.token(amp, ZERO, None)?;
+                                    self.builder.add(SPACE)?;
+                                }
+                                Element::Node(ty) => self.scan(ty)?,
+                            }
+                        }
+                        self.builder.add(CLOSE)?;
+                        self.builder.add(CLOSE)?;
+                    }
+                    self.builder.add(CLOSE)?;
+                }
+            }
+        }
+        self.builder.add(CLOSE)?;
+        self.builder.add(CLOSE)
+    }
+
+    fn members(
+        &mut self,
+        members: &[&'a Node],
+        first_blank_line: fn(bool) -> Option<BlankLine>,
+    ) -> Result<(), Unformatted> {
+        self.builder.add(OPEN_PLUS_TWO)?;
+        let mut first = true;
+        let mut last_got_blank = false;
+        for member in members {
+            self.builder.add(FORCED)?;
+            let javadoc = self
+                .builder
+                .input
+                .tokens
+                .get(self.builder.next)
+                .is_some_and(|token| {
+                    token
+                        .before
+                        .iter()
+                        .any(|tok| tok.text.starts_with("/**") || tok.text.starts_with("///"))
+                });
+            let gets_blank = member.kind != NodeKind::FieldDecl || javadoc;
+            let blank_line = match first {
+                true => first_blank_line(gets_blank),
+                false => (gets_blank || last_got_blank).then_some(BlankLine::Yes),
+            };
+            if let Some(blank_line) = blank_line {
+                self.builder.add(Op::BlankLine(blank_line))?;
+            }
+            if member.kind == NodeKind::FieldDecl {
+                let Some(Element::Node(modifiers)) = member.children.first() else {
+                    return Err(Unformatted::Deferred);
+                };
+                let vertical = modifiers.children.iter().any(|modifier| {
+                    matches!(modifier, Element::Node(annotation) if annotation.children.len() > 2)
+                });
+                let direction = match vertical {
+                    true => Direction::Vertical,
+                    false => Direction::Horizontal,
+                };
+                self.variables(member, Declaration::Field, direction)?;
+            } else {
+                self.scan(member)?;
+            }
+            first = false;
+            last_got_blank = gets_blank;
+        }
+        self.builder.add(FORCED)?;
+        self.builder.add(CLOSE)?;
+        self.builder.add(FORCED)
+    }
+
+    pub(super) fn initializer(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [Element::Node(modifiers), Element::Node(block)] = node.children.as_slice() else {
+            return Err(Unformatted::Deferred);
+        };
+        for modifier in &modifiers.children {
+            let Element::Token(modifier) = modifier else {
+                return Err(Unformatted::Deferred);
+            };
+            self.token(modifier, ZERO, None)?;
+            self.builder.add(SPACE)?;
+        }
+        self.block(block)
+    }
+
+    pub(super) fn enum_declaration(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [
+            Element::Node(modifiers),
+            Element::Token(keyword),
+            Element::Token(name),
+            rest @ ..,
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let (implements, body) = match rest {
+            [Element::Node(body)] => (None, body),
+            [Element::Node(implements), Element::Node(body)]
+                if implements.kind == NodeKind::ImplementsClause =>
+            {
+                (Some(implements), body)
+            }
+            _ => return Err(Unformatted::Deferred),
+        };
+        let [Element::Token(open), entries @ .., Element::Token(close)] = body.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let mut constants = Vec::new();
+        let mut commas = Vec::new();
+        let mut semicolon = None;
+        let mut members = Vec::new();
+        for entry in entries {
+            match (entry, semicolon) {
+                (Element::Node(constant), None) => constants.push(constant),
+                (Element::Token(token), None) if token.kind == TokenKind::Punct(Punct::Comma) => {
+                    commas.push(token);
+                }
+                (Element::Token(token), None) => semicolon = Some(token),
+                (Element::Node(member), Some(_)) => members.push(member),
+                (Element::Token(_), Some(_)) => return Err(Unformatted::Deferred),
+            }
+        }
+        self.builder.add(OPEN_ZERO)?;
+        self.modifiers(modifiers, Direction::Vertical, None)?;
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE_BREAK)?;
+        self.token(name, ZERO, None)?;
+        self.builder.add(CLOSE)?;
+        self.builder.add(CLOSE)?;
+        if let Some(implements) = implements {
+            let [Element::Token(keyword), types @ ..] = implements.children.as_slice() else {
+                return Err(Unformatted::Deferred);
+            };
+            self.builder.add(OPEN_PLUS_FOUR)?;
+            self.builder.add(SPACE_BREAK)?;
+            self.builder.add(OPEN_PLUS_FOUR)?;
+            self.token(keyword, ZERO, None)?;
+            self.builder.add(SPACE_BREAK)?;
+            self.builder.add(OPEN_ZERO)?;
+            for child in types {
+                match child {
+                    Element::Token(comma) => {
+                        self.token(comma, ZERO, None)?;
+                        self.builder.add(FILL_SPACE)?;
+                    }
+                    Element::Node(ty) => self.scan(ty)?,
+                }
+            }
+            self.builder.add(CLOSE)?;
+            self.builder.add(CLOSE)?;
+            self.builder.add(CLOSE)?;
+        }
+        self.builder.add(SPACE)?;
+        self.token(open, ZERO, Some(PLUS_TWO))?;
+        match (constants.is_empty() && members.is_empty(), semicolon) {
+            (true, Some(_)) => Err(Unformatted::Deferred),
+            (true, None) => {
+                self.builder.add(OPEN_ZERO)?;
+                self.builder.add(Op::BlankLine(BlankLine::No))?;
+                self.token(close, ZERO, None)?;
+                self.builder.add(CLOSE)
+            }
+            (false, semicolon) => {
+                self.builder.add(OPEN_PLUS_TWO)?;
+                self.builder.add(Op::BlankLine(BlankLine::No))?;
+                self.builder.add(FORCED)?;
+                self.builder.add(OPEN_ZERO)?;
+                for (index, constant) in constants.iter().enumerate() {
+                    if let Some(comma) = index.checked_sub(1).and_then(|i| commas.get(i)) {
+                        self.token(comma, ZERO, None)?;
+                        self.builder.add(FORCED)?;
+                        self.builder.add(Op::BlankLine(BlankLine::Preserve))?;
+                    }
+                    self.enum_constant(constant)?;
+                }
+                let trailing = match constants.len() {
+                    0 => commas.first(),
+                    count => commas.get(count - 1),
+                };
+                if let Some(comma) = trailing {
+                    self.token(comma, ZERO, None)?;
+                    self.builder.add(FORCED)?;
+                }
+                self.builder.add(CLOSE)?;
+                self.builder.add(CLOSE)?;
+                if let Some(semicolon) = semicolon {
+                    self.builder.add(OPEN_PLUS_TWO)?;
+                    self.builder.add(Op::Fence)?;
+                    self.token(semicolon, ZERO, None)?;
+                    self.builder.add(FORCED)?;
+                    self.builder.add(CLOSE)?;
+                }
+                self.builder.add(OPEN_ZERO)?;
+                if !members.is_empty() {
+                    self.members(&members, |gets_blank| gets_blank.then_some(BlankLine::Yes))?;
+                }
+                self.builder.add(FORCED)?;
+                self.builder.add(Op::BlankLine(BlankLine::No))?;
+                self.token(close, PLUS_TWO, None)?;
+                self.builder.add(CLOSE)
+            }
+        }
+    }
+
+    fn enum_constant(&mut self, constant: &'a Node) -> Result<(), Unformatted> {
+        let [Element::Node(modifiers), Element::Token(name), rest @ ..] =
+            constant.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        for annotation in &modifiers.children {
+            let Element::Node(annotation) = annotation else {
+                return Err(Unformatted::Deferred);
+            };
+            self.annotation(annotation)?;
+            self.builder.add(FORCED)?;
+        }
+        self.token(name, ZERO, None)?;
+        for part in rest {
+            let Element::Node(part) = part else {
+                return Err(Unformatted::Deferred);
+            };
+            if part.kind == NodeKind::ClassBody {
+                self.class_body(part)?;
+            } else if part.children.len() == 2 {
+                for paren in &part.children {
+                    let Element::Token(paren) = paren else {
+                        return Err(Unformatted::Deferred);
+                    };
+                    self.token(paren, ZERO, None)?;
+                }
+            } else {
+                self.arguments(part, PLUS_FOUR)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn annotation_type(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [
+            Element::Node(modifiers),
+            Element::Token(at),
+            Element::Token(keyword),
+            Element::Token(name),
+            Element::Node(body),
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        self.builder.add(OPEN_ZERO)?;
+        self.modifiers(modifiers, Direction::Vertical, None)?;
+        self.builder.add(OPEN_ZERO)?;
+        self.token(at, ZERO, None)?;
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE_BREAK)?;
+        self.token(name, ZERO, None)?;
+        self.builder.add(CLOSE)?;
+        self.builder.add(CLOSE)?;
+        self.class_body(body)
+    }
+
+    pub(super) fn method(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [Element::Node(modifiers), rest @ ..] = node.children.as_slice() else {
+            return Err(Unformatted::Deferred);
+        };
+        let (type_parameters, rest) = optional(rest, NodeKind::TypeParameters);
+        let (return_type, rest) = match (node.kind == NodeKind::MethodDecl, rest) {
+            (true, [Element::Node(return_type), tail @ ..]) => (Some(return_type), tail),
+            (true, _) => return Err(Unformatted::Deferred),
+            (false, rest) => (None, rest),
+        };
+        let [Element::Token(name), Element::Node(parameters), rest @ ..] = rest else {
+            return Err(Unformatted::Deferred);
+        };
+        let dimensions = rest
+            .iter()
+            .take_while(|child| {
+                matches!(
+                    child,
+                    Element::Node(Node {
+                        kind: NodeKind::Dimension,
+                        ..
+                    })
+                )
+            })
+            .count();
+        let (dims, rest) = rest.split_at(dimensions);
+        let (throws, rest) = optional(rest, NodeKind::ThrowsClause);
+        let (body, default, semicolon) = match rest {
+            [Element::Node(body)] if body.kind == NodeKind::Block => (Some(body), None, None),
+            [Element::Node(default), Element::Token(semicolon)]
+                if default.kind == NodeKind::DefaultValue =>
+            {
+                (None, Some(default), Some(semicolon))
+            }
+            [Element::Token(semicolon)] => (None, None, Some(semicolon)),
+            _ => return Err(Unformatted::Deferred),
+        };
+        let [Element::Token(open), formals @ .., Element::Token(close)] =
+            parameters.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        self.modifiers(modifiers, Direction::Vertical, None)?;
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        let before_name = self.builder.tag();
+        let before_type = self.builder.tag();
+        self.builder.add(OPEN_ZERO)?;
+        let mut after_first = false;
+        if let Some(type_parameters) = type_parameters {
+            let Some(Element::Token(angle)) = type_parameters.children.first() else {
+                return Err(Unformatted::Deferred);
+            };
+            self.token(angle, ZERO, None)?;
+            self.type_parameters_rest(type_parameters, PLUS_FOUR)?;
+            after_first = true;
+        }
+        if let Some(return_type) = return_type {
+            if after_first {
+                self.builder.add(Op::Break {
+                    mode: BreakMode::Fill,
+                    flat: " ",
+                    plus_indent: ZERO,
+                    tag: Some(before_type),
+                })?;
+            }
+            after_first = true;
+            self.builder.add(Op::Open(Indent::If(
+                before_type,
+                Box::new(PLUS_FOUR),
+                Box::new(ZERO),
+            )))?;
+            self.builder.add(OPEN_ZERO)?;
+            self.typed(return_type)?;
+            self.builder.add(CLOSE)?;
+        }
+        if after_first {
+            self.builder.add(Op::Break {
+                mode: BreakMode::Fill,
+                flat: " ",
+                plus_indent: ZERO,
+                tag: Some(before_name),
+            })?;
+        }
+        if return_type.is_none() {
+            self.builder.add(OPEN_ZERO)?;
+        }
+        self.token(name, ZERO, None)?;
+        self.token(open, ZERO, None)?;
+        self.builder.add(CLOSE)?;
+        self.builder.add(CLOSE)?;
+        self.builder.add(Op::Open(Indent::If(
+            before_name,
+            Box::new(PLUS_FOUR),
+            Box::new(ZERO),
+        )))?;
+        self.builder.add(Op::Open(Indent::If(
+            before_type,
+            Box::new(PLUS_FOUR),
+            Box::new(ZERO),
+        )))?;
+        self.builder.add(OPEN_ZERO)?;
+        if !formals.is_empty() {
+            self.builder.add(FILL)?;
+            self.builder.add(OPEN_ZERO)?;
+            let mut first = true;
+            let mut iter = formals.iter().peekable();
+            while let Some(formal) = iter.next() {
+                let Element::Node(formal) = formal else {
+                    return Err(Unformatted::Deferred);
+                };
+                let comma = match iter.peek() {
+                    Some(Element::Token(comma)) => {
+                        iter.next();
+                        Some(comma)
+                    }
+                    Some(Element::Node(_)) | None => None,
+                };
+                if !first {
+                    self.builder.add(SPACE_BREAK)?;
+                }
+                let [Element::Node(modifiers), Element::Node(ty), rest @ ..] =
+                    formal.children.as_slice()
+                else {
+                    return Err(Unformatted::Deferred);
+                };
+                let (varargs, name, dims) = match rest {
+                    [Element::Token(varargs), Element::Token(name), dims @ ..]
+                        if varargs.kind == TokenKind::Punct(Punct::Ellipsis) =>
+                    {
+                        (Some(varargs), name, dims)
+                    }
+                    [Element::Token(name), dims @ ..] => (None, name, dims),
+                    _ => return Err(Unformatted::Deferred),
+                };
+                if formal.kind != NodeKind::FormalParameter {
+                    return Err(Unformatted::Deferred);
+                }
+                self.declare_one(
+                    Declaration::Parameter,
+                    Direction::Horizontal,
+                    modifiers,
+                    ty,
+                    varargs,
+                    name,
+                    dims,
+                    None,
+                    comma,
+                )?;
+                first = false;
+            }
+            self.builder.add(CLOSE)?;
+        }
+        self.token(close, ZERO, None)?;
+        self.dimensions(dims)?;
+        if let Some(throws) = throws {
+            let [Element::Token(keyword), types @ ..] = throws.children.as_slice() else {
+                return Err(Unformatted::Deferred);
+            };
+            self.builder.add(FILL_SPACE)?;
+            self.builder.add(OPEN_PLUS_FOUR)?;
+            self.token(keyword, ZERO, None)?;
+            self.builder.add(FILL_SPACE)?;
+            for child in types {
+                match child {
+                    Element::Token(comma) => {
+                        self.token(comma, ZERO, None)?;
+                        self.builder.add(SPACE_BREAK)?;
+                    }
+                    Element::Node(ty) => self.scan(ty)?,
+                }
+            }
+            self.builder.add(CLOSE)?;
+        }
+        if let Some(default) = default {
+            let [Element::Token(keyword), Element::Node(value)] = default.children.as_slice()
+            else {
+                return Err(Unformatted::Deferred);
+            };
+            self.builder.add(SPACE)?;
+            self.token(keyword, ZERO, None)?;
+            match value.kind == NodeKind::ElementValueArray {
+                true => {
+                    self.builder.add(Op::Open(MINUS_FOUR))?;
+                    self.builder.add(SPACE)?;
+                    self.element(value, None)?;
+                }
+                false => {
+                    self.builder.add(OPEN_ZERO)?;
+                    self.builder.add(FILL_SPACE)?;
+                    self.element(value, None)?;
+                }
+            }
+            self.builder.add(CLOSE)?;
+        }
+        self.builder.add(CLOSE)?;
+        self.builder.add(CLOSE)?;
+        self.builder.add(CLOSE)?;
+        match (body, semicolon) {
+            (Some(body), _) => {
+                let [Element::Token(open), statements @ .., Element::Token(close)] =
+                    body.children.as_slice()
+                else {
+                    return Err(Unformatted::Deferred);
+                };
+                self.builder.add(SPACE)?;
+                self.token(open, PLUS_TWO, Some(PLUS_TWO))?;
+                self.builder.add(CLOSE)?;
+                match statements.is_empty() {
+                    true => self.builder.add(Op::BlankLine(BlankLine::No))?,
+                    false => {
+                        self.builder.add(OPEN_PLUS_TWO)?;
+                        self.builder.add(FORCED)?;
+                        self.builder.add(Op::BlankLine(BlankLine::Preserve))?;
+                        self.statements(statements)?;
+                        self.builder.add(CLOSE)?;
+                        self.builder.add(FORCED)?;
+                        self.builder.add(Op::BlankLine(BlankLine::No))?;
+                    }
+                }
+                self.token(close, PLUS_TWO, None)
+            }
+            (None, Some(semicolon)) => {
+                self.token(semicolon, ZERO, None)?;
+                self.builder.add(CLOSE)
+            }
+            (None, None) => Err(Unformatted::Deferred),
+        }
+    }
+
+    pub(super) fn variables(
+        &mut self,
+        node: &'a Node,
+        declaration: Declaration,
+        direction: Direction,
+    ) -> Result<(), Unformatted> {
+        let [
+            Element::Node(modifiers),
+            Element::Node(ty),
+            declarators @ ..,
+            Element::Token(semicolon),
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        match declarators {
+            [Element::Node(single)] => {
+                let Declarator {
+                    name,
+                    dims,
+                    initializer,
+                } = declarator(single)?;
+                self.declare_one(
+                    declaration,
+                    direction,
+                    modifiers,
+                    ty,
+                    None,
+                    name,
+                    dims,
+                    initializer,
+                    Some(semicolon),
+                )
+            }
+            _ => {
+                self.builder.add(OPEN_ZERO)?;
+                self.modifiers(modifiers, direction, None)?;
+                self.builder.add(OPEN_PLUS_FOUR)?;
+                self.builder.add(OPEN_ZERO)?;
+                self.typed(ty)?;
+                let mut first = true;
+                for child in declarators {
+                    match child {
+                        Element::Token(comma) => self.token(comma, ZERO, None)?,
+                        Element::Node(fragment) => {
+                            let Declarator {
+                                name,
+                                dims,
+                                initializer,
+                            } = declarator(fragment)?;
+                            self.builder.add(SPACE_BREAK)?;
+                            self.builder.add(OPEN_ZERO)?;
+                            self.token(name, ZERO, None)?;
+                            self.dimensions(dims)?;
+                            if let Some((equals, value)) = initializer {
+                                self.builder.add(SPACE)?;
+                                self.token(equals, ZERO, None)?;
+                                self.builder.add(OPEN_PLUS_FOUR)?;
+                                self.builder.add(SPACE_BREAK)?;
+                                self.scan(value)?;
+                                self.builder.add(CLOSE)?;
+                            }
+                            self.builder.add(CLOSE)?;
+                            if first {
+                                self.builder.add(CLOSE)?;
+                            }
+                            first = false;
+                        }
+                    }
+                }
+                self.builder.add(CLOSE)?;
+                self.token(semicolon, ZERO, None)?;
+                self.builder.add(CLOSE)
+            }
+        }
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the arguments are those of google-java-format's declareOne"
+    )]
+    fn declare_one(
+        &mut self,
+        declaration: Declaration,
+        direction: Direction,
+        modifiers: &'a Node,
+        ty: &'a Node,
+        varargs: Option<&'a Token>,
+        name: &'a Token,
+        dims: &'a [Element],
+        initializer: Option<(&'a Token, &'a Node)>,
+        trailing: Option<&'a Token>,
+    ) -> Result<(), Unformatted> {
+        let type_break = self.builder.tag();
+        let annotation_break = self.builder.tag();
+        let field_blank_line = match declaration {
+            Declaration::Field => Some(BlankLine::Conditional(vec![annotation_break])),
+            Declaration::Local | Declaration::Parameter => None,
+        };
+        if let Some(blank_line) = field_blank_line.clone() {
+            self.builder.add(Op::BlankLine(blank_line))?;
+        }
+        let annotated = modifiers
+            .children
+            .iter()
+            .any(|child| matches!(child, Element::Node(_)));
+        match (declaration, annotated) {
+            (Declaration::Parameter, true) => self.builder.add(OPEN_PLUS_FOUR)?,
+            (Declaration::Parameter | Declaration::Field | Declaration::Local, _) => {
+                self.builder.add(OPEN_ZERO)?;
+            }
+        }
+        self.modifiers(modifiers, direction, Some(annotation_break))?;
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        self.builder.add(OPEN_ZERO)?;
+        self.builder.add(OPEN_ZERO)?;
+        let (base, type_dims) = match ty.kind == NodeKind::ArrayType {
+            true => match ty.children.as_slice() {
+                [Element::Node(base), dims @ ..] => (base, dims),
+                _ => return Err(Unformatted::Deferred),
+            },
+            false => (ty, &[] as &[Element]),
+        };
+        self.scan(base)?;
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        self.dimensions(type_dims)?;
+        if let Some(varargs) = varargs {
+            self.builder.add(FILL)?;
+            self.token(varargs, ZERO, None)?;
+        }
+        self.builder.add(CLOSE)?;
+        self.builder.add(CLOSE)?;
+        self.builder.add(Op::Break {
+            mode: BreakMode::Fill,
+            flat: " ",
+            plus_indent: ZERO,
+            tag: Some(type_break),
+        })?;
+        self.builder.add(Op::Open(Indent::If(
+            type_break,
+            Box::new(PLUS_FOUR),
+            Box::new(ZERO),
+        )))?;
+        self.token(name, ZERO, None)?;
+        self.dimensions(dims)?;
+        self.builder.add(CLOSE)?;
+        self.builder.add(CLOSE)?;
+        if let Some((equals, value)) = initializer {
+            self.builder.add(SPACE)?;
+            self.token(equals, ZERO, None)?;
+            match value.kind == NodeKind::ArrayInitializer {
+                true => {
+                    self.builder.add(Op::Open(MINUS_FOUR))?;
+                    self.builder.add(SPACE)?;
+                    self.array_initializer(value, None)?;
+                }
+                false => {
+                    self.builder.add(Op::Open(Indent::If(
+                        type_break,
+                        Box::new(PLUS_FOUR),
+                        Box::new(ZERO),
+                    )))?;
+                    self.builder.add(FILL_SPACE)?;
+                    self.scan(value)?;
+                }
+            }
+            self.builder.add(CLOSE)?;
+        }
+        if let Some(trailing) = trailing {
+            self.token(trailing, ZERO, None)?;
+        }
+        self.builder.add(CLOSE)?;
+        self.builder.add(CLOSE)?;
+        if let Some(blank_line) = field_blank_line {
+            self.builder.add(Op::BlankLine(blank_line))?;
+        }
+        Ok(())
+    }
+
+    fn typed(&mut self, ty: &'a Node) -> Result<(), Unformatted> {
+        match (ty.kind == NodeKind::ArrayType, ty.children.as_slice()) {
+            (true, [Element::Node(base), dims @ ..]) => {
+                self.scan(base)?;
+                self.dimensions(dims)
+            }
+            (true, _) => Err(Unformatted::Deferred),
+            (false, _) => self.scan(ty),
+        }
+    }
+
+    pub(super) fn dimensions(&mut self, dims: &'a [Element]) -> Result<(), Unformatted> {
+        for dim in dims {
+            let Element::Node(dim) = dim else {
+                return Err(Unformatted::Deferred);
+            };
+            let [Element::Token(open), Element::Token(close)] = dim.children.as_slice() else {
+                return Err(Unformatted::Deferred);
+            };
+            self.builder.add(FILL)?;
+            self.token(open, ZERO, None)?;
+            self.token(close, ZERO, None)?;
+        }
+        Ok(())
+    }
+}

@@ -1,11 +1,19 @@
 mod identifier_table;
-mod scan;
+pub mod literal;
+pub mod scan;
 pub mod token;
-mod unicode_escapes;
+pub mod unicode_escapes;
 
 use token::{LexError, Token};
+use unicode_escapes::Translated;
 
-pub fn scan(source: &str) -> Result<Vec<Token>, LexError> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Lexed {
+    pub tokens: Vec<Token>,
+    pub text: Translated,
+}
+
+pub fn scan(source: &str) -> Result<Lexed, LexError> {
     let text = unicode_escapes::translate(source)?;
     let mut tokens = Vec::new();
     let mut index = 0;
@@ -21,7 +29,7 @@ pub fn scan(source: &str) -> Result<Vec<Token>, LexError> {
         });
         index = end;
     }
-    Ok(tokens)
+    Ok(Lexed { tokens, text })
 }
 
 #[cfg(test)]
@@ -95,7 +103,7 @@ mod tests {
             ("\u{1a}", TokenKind::Whitespace),
         ];
         for (source, kind) in cases {
-            let tokens = scan(source);
+            let tokens = scan(source).map(|lexed| lexed.tokens);
 
             assert_eq!(
                 tokens,
@@ -214,7 +222,7 @@ mod tests {
             (">>>=", TokenKind::Punct(Punct::GtGtGtEq)),
         ];
         for (source, kind) in cases {
-            let tokens = scan(source);
+            let tokens = scan(source).map(|lexed| lexed.tokens);
 
             assert_eq!(
                 tokens,
@@ -240,7 +248,7 @@ mod tests {
             "switch (o) { case Integer i when i > 0 -> yield i; default -> {} }",
         ];
         for source in sources {
-            let tokens = scan(source).unwrap_or_default();
+            let tokens = scan(source).map(|lexed| lexed.tokens).unwrap_or_default();
 
             let joined: String = tokens.iter().map(|t| &source[t.start..t.end]).collect();
             let contiguous = tokens.windows(2).all(|w| w[0].end == w[1].start);
@@ -253,6 +261,7 @@ mod tests {
         let source = "a>>=b>>c>=d";
 
         let kinds: Vec<TokenKind> = scan(source)
+            .map(|lexed| lexed.tokens)
             .unwrap_or_default()
             .iter()
             .map(|t| t.kind)
@@ -276,7 +285,7 @@ mod tests {
     fn when_scan_with_unicode_escapes_then_returns_tokens_over_the_escaped_source() {
         let source = "\\u0069nt x\\u003b";
 
-        let tokens = scan(source);
+        let tokens = scan(source).map(|lexed| lexed.tokens);
 
         assert_eq!(
             tokens,
@@ -339,7 +348,7 @@ mod tests {
             ("1e+", LexErrorKind::MalformedNumber, 0),
         ];
         for (source, kind, offset) in cases {
-            let error = scan(source).err();
+            let error = scan(source).map(|lexed| lexed.tokens).err();
 
             assert_eq!(error, Some(LexError { kind, offset }), "{source:?}");
         }

@@ -5,6 +5,7 @@ mod types;
 
 use crate::lexer;
 use crate::lexer::token::{Keyword, Punct, Token, TokenClass, TokenKind};
+use crate::lexer::unicode_escapes::Translated;
 use crate::syntax::{Element, Node, NodeKind};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -25,8 +26,13 @@ struct Parser<'a> {
     split: Option<Token>,
 }
 
-pub fn parse(source: &str) -> Result<Node, ParseError> {
-    let tokens = lexer::scan(source).map_err(|e| ParseError {
+pub struct Unit {
+    pub tree: Node,
+    pub text: Translated,
+}
+
+pub fn parse(source: &str) -> Result<Unit, ParseError> {
+    let lexer::Lexed { tokens, text } = lexer::scan(source).map_err(|e| ParseError {
         offset: e.offset,
         message: e.kind.to_string(),
     })?;
@@ -58,7 +64,8 @@ pub fn parse(source: &str) -> Result<Node, ParseError> {
         raw: 0,
         split: None,
     };
-    parser.compilation_unit()
+    let tree = parser.compilation_unit()?;
+    Ok(Unit { tree, text })
 }
 
 impl Parser<'_> {
@@ -561,7 +568,7 @@ mod tests {
             ),
         ];
         for (source, expected) in cases {
-            let tree = parse(source);
+            let tree = parse(source).map(|unit| unit.tree);
 
             let shown = tree.map(|t| {
                 let text: String = t

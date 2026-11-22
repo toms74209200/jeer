@@ -5,3 +5,4 @@ Work through the remaining mismatches of `scripts/corpus-diff.sh dev`, largest c
 ## Done when
 - `scripts/corpus-diff.sh dev` reports every file as `match`, except files in `corpus/oracle-bugs.tsv` (path and reason), which a human approved through `shampoo ask`
 - Every fixture passes; no `skip` marker remains under `tests/fixtures/gjf/`
+- `gjf::format` has no `Unformatted::Deferred` result: the `gjf` profile never falls back to the unchanged input, and the `#[expect(dead_code)]` on `mod gjf` is gone

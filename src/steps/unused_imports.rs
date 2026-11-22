@@ -5,7 +5,7 @@ use crate::parser::{self, ParseError};
 use crate::syntax::{Element, Node, NodeKind};
 
 pub fn apply(text: &str) -> Result<String, ParseError> {
-    let tree = parser::parse(text)?;
+    let tree = parser::parse(text)?.tree;
     let mut used: HashSet<String> = HashSet::new();
     let mut package = String::new();
     let mut imports: Vec<&Node> = Vec::new();

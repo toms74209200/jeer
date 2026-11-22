@@ -39,6 +39,19 @@ pub struct Group {
     docs: Vec<Doc>,
     width: usize,
     flat: String,
+    range: Range,
+}
+
+pub type Range = Option<(usize, usize)>;
+
+fn union(a: Range, b: Range) -> Range {
+    match (a, b) {
+        (Some((low, high)), Some((other_low, other_high))) => {
+            Some((low.min(other_low), high.max(other_high)))
+        }
+        (Some(range), None) | (None, Some(range)) => Some(range),
+        (None, None) => None,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,12 +64,13 @@ pub struct Choice {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Doc {
-    Text(String),
-    Lines(Vec<String>),
+    Text(String, Range),
+    Lines(Vec<String>, Range),
     Comment {
         text: String,
         flat: String,
         width: usize,
+        range: Range,
     },
     Space,
     Header(HeaderMark),
@@ -76,7 +90,7 @@ impl<F: Fn(&str, usize, usize) -> String> Comments for F {
 }
 
 pub trait Sink {
-    fn append(&mut self, text: &str);
+    fn append(&mut self, text: &str, range: Range);
     fn indent(&mut self, indent: usize);
 }
 
@@ -112,7 +126,7 @@ pub fn parameter_comment(text: &str) -> Option<String> {
         Some(before.trim_matches(java_space))
     })?;
     let identifier = name.strip_suffix("...").unwrap_or(name);
-    let tokens = lexer::scan(identifier).ok()?;
+    let tokens = lexer::scan(identifier).ok()?.tokens;
     match (tokens.as_slice(), identifier.contains('\\')) {
         (
             [
@@ -145,17 +159,19 @@ impl Group {
     pub fn new(plus_indent: Indent, docs: Vec<Doc>) -> Group {
         let width = total_width(&docs);
         let flat: String = docs.iter().map(Doc::flat).collect();
+        let range = docs.iter().map(Doc::range).fold(None, union);
         Group {
             plus_indent,
             docs,
             width,
             flat,
+            range,
         }
     }
 }
 
 impl Doc {
-    pub fn comment(text: &str) -> Doc {
+    pub fn comment(text: &str, range: Range) -> Doc {
         let parameter = parameter_comment(text);
         let flat = match (
             text.starts_with("//") && !text.starts_with("// "),
@@ -173,16 +189,26 @@ impl Doc {
             text: text.to_owned(),
             flat,
             width,
+            range,
+        }
+    }
+
+    pub fn range(&self) -> Range {
+        match self {
+            Doc::Text(_, range) | Doc::Lines(_, range) | Doc::Comment { range, .. } => *range,
+            Doc::Group(group) => group.range,
+            Doc::Choice(choice) => choice.fallback.range,
+            Doc::Space | Doc::Header(_) | Doc::Break(_) => None,
         }
     }
 
     pub fn width(&self) -> usize {
         match self {
-            Doc::Text(text) => match first_break(text) {
+            Doc::Text(text, _) => match first_break(text) {
                 Some(_) => MAX_LINE_WIDTH,
                 None => text.chars().map(char::len_utf16).sum(),
             },
-            Doc::Lines(_) => MAX_LINE_WIDTH,
+            Doc::Lines(..) => MAX_LINE_WIDTH,
             Doc::Comment { width, .. } => *width,
             Doc::Space => 1,
             Doc::Header(_) => 0,
@@ -194,18 +220,18 @@ impl Doc {
 
     pub fn flat(&self) -> &str {
         match self {
-            Doc::Text(flat) | Doc::Comment { flat, .. } => flat,
+            Doc::Text(flat, _) | Doc::Comment { flat, .. } => flat,
             Doc::Break(Break { flat, .. }) | Doc::Group(Group { flat, .. }) => flat,
             Doc::Choice(choice) => &choice.fallback.flat,
             Doc::Space => " ",
-            Doc::Lines(_) | Doc::Header(_) => "",
+            Doc::Lines(..) | Doc::Header(_) => "",
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Action {
-    Append(String),
+    Append(String, Range),
     Newline(usize),
     IndentTo(usize),
 }
@@ -240,7 +266,7 @@ struct Solver<'a> {
 }
 
 impl Indent {
-    fn eval(&self, tags: &[bool]) -> i32 {
+    pub fn eval(&self, tags: &[bool]) -> i32 {
         match self {
             Indent::Const(n) => *n,
             Indent::If(tag, then, otherwise) => match tags.get(tag.0) {
@@ -254,7 +280,8 @@ impl Indent {
 impl Solver<'_> {
     fn group(&mut self, group: &Group, state: State) -> State {
         if state.column + group.width <= self.max_width {
-            self.actions.push(Action::Append(group.flat.clone()));
+            self.actions
+                .push(Action::Append(group.flat.clone(), group.range));
             return State {
                 column: state.column + group.width,
                 ..state
@@ -348,7 +375,8 @@ impl Solver<'_> {
                 }
             }
             false => {
-                self.actions.push(Action::Append(separator.flat.clone()));
+                self.actions
+                    .push(Action::Append(separator.flat.clone(), None));
                 State {
                     column: state.column + separator.width(),
                     ..state
@@ -361,24 +389,24 @@ impl Solver<'_> {
         match doc {
             Doc::Group(group) => self.group(group, state),
             Doc::Choice(choice) => self.choice(choice, state),
-            Doc::Text(text) => {
+            Doc::Text(text, range) => {
                 if let Some(second_line) = first_break(text) {
                     let _ = self.end_line(state.column + second_line);
                 }
-                self.actions.push(Action::Append(text.clone()));
+                self.actions.push(Action::Append(text.clone(), *range));
                 State {
                     column: state.column + doc.width(),
                     ..state
                 }
             }
-            Doc::Lines(lines) => {
+            Doc::Lines(lines, range) => {
                 let first = lines.first().map_or("", String::as_str);
                 let first_width = first.chars().map(char::len_utf16).sum::<usize>();
                 if let Ended::Yes = self.end_line(state.column + first_width) {
                     return state;
                 }
                 let indent = self.line_indent;
-                self.actions.push(Action::Append(first.to_owned()));
+                self.actions.push(Action::Append(first.to_owned(), *range));
                 let mut newlines = 0;
                 for line in lines.iter().skip(1) {
                     newlines += 1;
@@ -390,7 +418,7 @@ impl Solver<'_> {
                     if indent > 0 {
                         self.actions.push(Action::IndentTo(indent));
                     }
-                    self.actions.push(Action::Append(line.clone()));
+                    self.actions.push(Action::Append(line.clone(), *range));
                 }
                 if newlines > 0 {
                     self.actions.push(Action::Newline(newlines));
@@ -401,7 +429,7 @@ impl Solver<'_> {
                 }
             }
             Doc::Space => {
-                self.actions.push(Action::Append(" ".to_owned()));
+                self.actions.push(Action::Append(" ".to_owned(), None));
                 State {
                     column: state.column + 1,
                     ..state
@@ -416,14 +444,14 @@ impl Solver<'_> {
                 }
                 state
             }
-            Doc::Comment { text, .. } => {
+            Doc::Comment { text, range, .. } => {
                 let rewritten = self.comments.rewrite(text, self.max_width, state.column);
                 if let Some(second_line) = first_break(&rewritten) {
                     let _ = self.end_line(state.column + second_line);
                 }
                 let last_line = rewritten.rsplit(['\n', '\r']).next().unwrap_or_default();
                 let column = state.column + last_line.chars().map(char::len_utf16).sum::<usize>();
-                self.actions.push(Action::Append(rewritten));
+                self.actions.push(Action::Append(rewritten, *range));
                 State { column, ..state }
             }
             Doc::Break(_) => state,
@@ -433,8 +461,10 @@ impl Solver<'_> {
     fn choice(&mut self, choice: &Choice, state: State) -> State {
         let width = choice.fallback.width;
         if state.column + width <= self.max_width {
-            self.actions
-                .push(Action::Append(choice.fallback.flat.clone()));
+            self.actions.push(Action::Append(
+                choice.fallback.flat.clone(),
+                choice.fallback.range,
+            ));
             return State {
                 column: state.column + width,
                 ..state
@@ -515,7 +545,24 @@ impl Solver<'_> {
     }
 }
 
-pub fn format(doc: &Doc, max_width: usize, comments: &dyn Comments, sink: &mut dyn Sink) {
+pub struct Layout {
+    actions: Vec<Action>,
+    pub taken: Vec<bool>,
+}
+
+impl Layout {
+    pub fn replay(self, sink: &mut dyn Sink) {
+        for action in self.actions {
+            match action {
+                Action::Append(text, range) => sink.append(&text, range),
+                Action::Newline(count) => sink.append(&"\n".repeat(count), None),
+                Action::IndentTo(spaces) => sink.indent(spaces),
+            }
+        }
+    }
+}
+
+pub fn solve(doc: &Doc, max_width: usize, comments: &dyn Comments) -> Layout {
     let root = match doc {
         Doc::Group(group) => group.clone(),
         other => Group::new(Indent::Const(0), vec![other.clone()]),
@@ -538,23 +585,20 @@ pub fn format(doc: &Doc, max_width: usize, comments: &dyn Comments, sink: &mut d
             column: 0,
         },
     );
-    for action in solver.actions {
-        match action {
-            Action::Append(text) => sink.append(&text),
-            Action::Newline(count) => sink.append(&"\n".repeat(count)),
-            Action::IndentTo(spaces) => sink.indent(spaces),
-        }
+    Layout {
+        actions: solver.actions,
+        taken: solver.tags,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::output::TextSink;
+    use super::super::output::JavaOutput;
     use super::*;
 
     #[test]
     fn when_format_with_layout_cases_then_returns_what_gjf_layout_solver_returns() {
-        let text = |s: &str| Doc::Text(s.to_owned());
+        let text = |s: &str| Doc::Text(s.to_owned(), None);
         let brk = |mode: BreakMode, flat: &str, indent: i32| {
             Doc::Break(Break {
                 mode,
@@ -708,13 +752,16 @@ mod tests {
             vec![
                 text("s ="),
                 brk(BreakMode::Forced, " ", 4),
-                Doc::Lines(vec![
-                    "\"\"\"".into(),
-                    "  a".into(),
-                    "".into(),
-                    "b".into(),
-                    "\"\"\";".into(),
-                ]),
+                Doc::Lines(
+                    vec![
+                        "\"\"\"".into(),
+                        "  a".into(),
+                        "".into(),
+                        "b".into(),
+                        "\"\"\";".into(),
+                    ],
+                    None,
+                ),
             ],
         ));
         let fallback_next_line = Doc::Choice(Box::new(Choice {
@@ -946,9 +993,9 @@ mod tests {
             ),
         ];
         for (name, doc, max_width, expected) in cases {
-            let mut sink = TextSink::default();
+            let mut sink = JavaOutput::default();
 
-            format(&doc, max_width, &|t: &str, _, _| t.to_owned(), &mut sink);
+            solve(&doc, max_width, &|t: &str, _, _| t.to_owned()).replay(&mut sink);
 
             assert_eq!(String::from(sink), format!("{expected}\n"), "{name}");
         }
@@ -970,7 +1017,7 @@ mod tests {
             ("/* a\r\n b */", "/* a\r\n b */", 6),
         ];
         for (text, flat, width) in cases {
-            let comment = Doc::comment(text);
+            let comment = Doc::comment(text, None);
 
             assert_eq!((comment.flat(), comment.width()), (flat, width), "{text:?}");
         }
@@ -981,25 +1028,23 @@ mod tests {
         let doc = Doc::Group(Group::new(
             Indent::Const(0),
             vec![
-                Doc::Text("f(".to_owned()),
-                Doc::comment("/*x*/"),
+                Doc::Text("f(".to_owned(), None),
+                Doc::comment("/*x*/", None),
                 Doc::Break(Break {
                     mode: BreakMode::Unified,
                     flat: " ".to_owned(),
                     plus_indent: Indent::Const(4),
                     tag: None,
                 }),
-                Doc::Text("a_long_argument)".to_owned()),
+                Doc::Text("a_long_argument)".to_owned(), None),
             ],
         ));
-        let mut sink = TextSink::default();
+        let mut sink = JavaOutput::default();
 
-        format(
-            &doc,
-            10,
-            &|t: &str, _, column: usize| format!("{t}@{column}"),
-            &mut sink,
-        );
+        solve(&doc, 10, &|t: &str, _, column: usize| {
+            format!("{t}@{column}")
+        })
+        .replay(&mut sink);
 
         assert_eq!(String::from(sink), "f(/*x*/@2\n    a_long_argument)\n");
     }
@@ -1010,7 +1055,7 @@ mod tests {
         for size in [25_000usize, 100_000] {
             let mut docs = Vec::with_capacity(size * 2);
             for _ in 0..size {
-                docs.push(Doc::Text("tok".to_owned()));
+                docs.push(Doc::Text("tok".to_owned(), None));
                 docs.push(Doc::Break(Break {
                     mode: BreakMode::Fill,
                     flat: " ".to_owned(),
@@ -1021,9 +1066,9 @@ mod tests {
             let doc = Doc::Group(Group::new(Indent::Const(0), docs));
             let mut best = std::time::Duration::MAX;
             for _ in 0..3 {
-                let mut sink = TextSink::default();
+                let mut sink = JavaOutput::default();
                 let start = std::time::Instant::now();
-                format(&doc, 100, &|t: &str, _, _| t.to_owned(), &mut sink);
+                solve(&doc, 100, &|t: &str, _, _| t.to_owned()).replay(&mut sink);
                 best = best.min(start.elapsed());
             }
             timings.push(best.as_secs_f64());
