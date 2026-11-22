@@ -322,6 +322,26 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/stmt-return-long/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/stmt-if-else/input.java"),
+                include_str!("../tests/fixtures/gjf/stmt-if-else/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/stmt-empty-blocks/input.java"),
+                include_str!("../tests/fixtures/gjf/stmt-empty-blocks/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/comment-before-else/input.java"),
+                include_str!("../tests/fixtures/gjf/comment-before-else/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/stmt-loops/input.java"),
+                include_str!("../tests/fixtures/gjf/stmt-loops/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/stmt-labels/input.java"),
+                include_str!("../tests/fixtures/gjf/stmt-labels/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
