@@ -1,26 +1,11 @@
 use crate::pipeline::Rejection;
 
-pub struct UnixText(String);
-
-impl From<&str> for UnixText {
-    fn from(text: &str) -> Self {
-        let unix = match text.contains("\r\n") {
-            true => text.replace('\r', ""),
-            false => text.replace('\r', "\n"),
-        };
-        UnixText(unix)
-    }
-}
-
-impl From<UnixText> for String {
-    fn from(text: UnixText) -> Self {
-        text.0
-    }
-}
-
 pub fn apply(text: &str) -> Result<String, Rejection> {
-    let unix = UnixText::from(text);
-    Ok(String::from(unix))
+    let unix = match text.contains("\r\n") {
+        true => text.replace('\r', ""),
+        false => text.replace('\r', "\n"),
+    };
+    Ok(unix)
 }
 
 #[cfg(test)]
@@ -28,7 +13,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn when_from_with_each_kind_of_line_ending_then_returns_it_as_spotless_does() {
+    fn when_apply_with_each_kind_of_line_ending_then_returns_it_as_spotless_does() {
         let cases = [
             ("a\nb\n", "a\nb\n"),
             ("a\r\nb\r\n", "a\nb\n"),
@@ -37,9 +22,9 @@ mod tests {
             ("", ""),
         ];
         for (text, expected) in cases {
-            let unix = String::from(UnixText::from(text));
+            let unix = apply(text);
 
-            assert_eq!(unix, expected, "{text:?}");
+            assert_eq!(unix, Ok(expected.to_owned()), "{text:?}");
         }
     }
 }
