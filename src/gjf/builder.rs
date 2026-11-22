@@ -397,7 +397,10 @@ impl<'a> Builder<'a> {
                 }
                 Event::Space => levels[append].items.push(Item::Doc(Doc::Space)),
                 Event::Fence => {}
-                Event::Header(mark) => levels[append].items.push(Item::Doc(Doc::Header(mark))),
+                Event::Header(mark) => {
+                    let innermost = *stack.last().ok_or(unbalanced.clone())?;
+                    levels[innermost].items.push(Item::Doc(Doc::Header(mark)));
+                }
             }
         }
         if stack.len() != 1 {
