@@ -8,4 +8,4 @@ The final goal: Phase 1 of design doc §4 is complete.
 - Every fixture passes with no `skip` marker left
 - The performance requirements of design doc §5 hold, as the benchmark of task 210 reports
 - README.md describes installation, the CLI and the configuration
-- `gjf::format` has no `Unformatted::Deferred` result: the `gjf` profile never falls back to the unchanged input
+- The `gjf` profile never falls back to the unchanged input (task 159)

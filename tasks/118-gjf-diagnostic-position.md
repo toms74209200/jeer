@@ -4,9 +4,9 @@ Bounded context: `gjf` (`src/gjf/`).
 
 LayoutBuilder.diagnostic reports a FormattingError at inputPosition, the start of the last node the visitor synced (`sync(node)`), not at the token that failed to match. jeer reports an "expected token" rejection at the next input token, so the line can differ (`int\n      \u0061b;`: the oracle reports line 2, jeer line 3).
 
-Rejections after a cleanup (task 112) carry offsets in the cleaned text, while the profile locates them in the input it was given; GJF reports them against the cleaned contents too, so the line can differ from the input's.
+Rejections after a cleanup (task 112) carry offsets in the cleaned text, while `pipeline` locates them in the input it was given; GJF reports them against the cleaned contents too, so the line can differ from the input's.
 
 ## Done when
 - The visitor records the start position of each node it syncs as JavaInputAstVisitor does, and rejections report that position
-- `gjf` maps a rejection's position back to an offset in the input `gjf::format` was given, so `Rejection::at` in `src/profile.rs` places it without change
+- `gjf` maps a rejection's position back to an offset in the input `gjf::step` was given, so `pipeline` places it without change
 - Small tests cover rejections whose failing token is on a later line than the node's start, and rejections in inputs that cleanups changed

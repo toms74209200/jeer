@@ -6,4 +6,4 @@ Bounded context: `gjf` (`src/gjf/`).
 
 ## Done when
 - `javadoc-markdown-bare` and `javadoc-markdown-short-trailing` pass with their `skip` markers deleted
-- `gjf::format` no longer defers inputs with `///` comments
+- `gjf::step` no longer defers inputs with `///` comments

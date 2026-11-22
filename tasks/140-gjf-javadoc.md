@@ -6,4 +6,4 @@ Port JavadocFormatter's lexer and writer for text, paragraphs, blank lines and b
 
 ## Done when
 - `javadoc-simple`, `javadoc-empty`, `javadoc-one-line-tag`, `javadoc-field`, `javadoc-paragraphs`, `javadoc-blank-lines`, `javadoc-params` and `javadoc-wrap` pass with their `skip` markers deleted
-- `gjf::format` no longer defers inputs with `/**` comments
+- `gjf::step` no longer defers inputs with `/**` comments

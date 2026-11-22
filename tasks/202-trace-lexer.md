@@ -5,4 +5,4 @@ Bounded context: `lexer` (`src/lexer.rs`, `src/lexer/`), calling the `trace` con
 Design doc §10: the lex span.
 
 ## Done when
-- The context opens the lex span through `trace`, and a small test with the feature on sees their records
+- The context opens the lex span through `trace` with its token count, and a small test with the feature on sees the record

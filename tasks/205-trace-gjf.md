@@ -5,4 +5,4 @@ Bounded context: `gjf` (`src/gjf.rs`, `src/gjf/`), calling the `trace` context o
 Design doc §10: the doc_build and print spans.
 
 ## Done when
-- The context opens the doc_build and print spans through `trace`, and a small test with the feature on sees their records
+- The context opens the doc_build and print spans through `trace` with the Doc IR node count and the number of `fits` calls, and a small test with the feature on sees the records
