@@ -2,7 +2,7 @@
 
 Bounded context: `gjf` (`src/gjf/`).
 
-`visitTextBlock` and LayoutBuilder's `multilineToken`, which build the solver's `Doc::Lines` (ported in task 105). Spotless runs GJF without `reflowLongStrings`, so long strings are not rewrapped.
+`visitTextBlock` and LayoutBuilder's `multilineToken`, which build the solver's `Doc::Lines` (ported in task 105). Long-string reflow is task 154.
 
 ## Done when
 - `string-text-block`, `string-text-block-in-call` and `modern-text-block-indent` pass with their `skip` markers deleted
