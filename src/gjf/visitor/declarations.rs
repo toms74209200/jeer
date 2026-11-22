@@ -994,6 +994,7 @@ impl<'a> Visitor<'a> {
         declaration: Declaration,
         direction: Direction,
     ) -> Result<(), Unformatted> {
+        self.sync(node)?;
         let [
             Element::Node(modifiers),
             Element::Node(ty),

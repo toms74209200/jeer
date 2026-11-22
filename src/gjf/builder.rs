@@ -28,12 +28,21 @@ pub enum Op<'s> {
     },
     Fence,
     BlankLine(BlankLine),
+    Sync(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Unformatted {
     Deferred,
-    Rejected { offset: usize, message: String },
+    Rejected {
+        offset: usize,
+        message: String,
+    },
+    RejectedAt {
+        line: usize,
+        column: usize,
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +77,7 @@ pub struct Builder<'a> {
     pub(super) next: usize,
     tags: usize,
     blank_lines: HashMap<usize, BlankLine>,
+    input_position: usize,
 }
 
 impl<'a> From<&'a Input> for Builder<'a> {
@@ -78,6 +88,7 @@ impl<'a> From<&'a Input> for Builder<'a> {
             next: 0,
             tags: 0,
             blank_lines: HashMap::new(),
+            input_position: 0,
         }
     }
 }
@@ -105,6 +116,7 @@ impl<'a> Builder<'a> {
                 tag,
             })),
             Op::Space => self.events.push(Event::Space),
+            Op::Sync(position) => self.input_position = self.input_position.max(position),
             Op::Fence => self.events.push(Event::Fence),
             Op::Token {
                 text,
@@ -122,7 +134,7 @@ impl<'a> Builder<'a> {
                 }
                 Some(token) => {
                     return Err(Unformatted::Rejected {
-                        offset: token.tok.position,
+                        offset: self.input_position,
                         message: format!(
                             "expected token: '{}'; generated {text} instead",
                             token.tok.text
@@ -131,7 +143,7 @@ impl<'a> Builder<'a> {
                 }
                 None => {
                     return Err(Unformatted::Rejected {
-                        offset: 0,
+                        offset: self.input_position,
                         message: format!("expected token: 'null'; generated {text} instead"),
                     });
                 }
@@ -142,7 +154,7 @@ impl<'a> Builder<'a> {
                     .tokens
                     .get(self.next)
                     .ok_or(Unformatted::Rejected {
-                        offset: 0,
+                        offset: self.input_position,
                         message: "blank line requested after the end of the input".to_owned(),
                     })?;
                 let k = token
@@ -340,7 +352,7 @@ impl<'a> Builder<'a> {
         }
 
         let unbalanced = Unformatted::Rejected {
-            offset: 0,
+            offset: self.input_position,
             message: "unbalanced close".to_owned(),
         };
         let mut levels = vec![Level {
@@ -385,7 +397,7 @@ impl<'a> Builder<'a> {
         }
         if stack.len() != 1 {
             return Err(Unformatted::Rejected {
-                offset: 0,
+                offset: self.input_position,
                 message: format!("saw {} unclosed ops", stack.len() - 1),
             });
         }

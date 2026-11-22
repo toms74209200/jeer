@@ -8,14 +8,7 @@ use crate::steps;
 #[derive(Debug, PartialEq, Eq)]
 pub enum Position {
     Offset(usize),
-    #[expect(
-        dead_code,
-        reason = "gjf reports errors after its cleanups at a line and column of the cleaned text in task 118"
-    )]
-    LineColumn {
-        line: usize,
-        column: usize,
-    },
+    LineColumn { line: usize, column: usize },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -274,7 +267,7 @@ mod tests {
                 "import a.B;\r\nclass A{B b;}\r\n",
                 Ok("import a.B;\n\nclass A {\n  B b;\n}\n".to_owned()),
             ),
-            ("class A { int \\u0061b; }\n", Err((1, 15))),
+            ("class A { int \\u0061b; }\n", Err((1, 11))),
             ("class A {}\r", Ok("class A {}\n".to_owned())),
             ("class A {", Err((1, 10))),
             ("class A {\r\nvoid é;\r\n}\r\n", Err((2, 7))),
