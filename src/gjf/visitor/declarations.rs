@@ -16,6 +16,19 @@ pub(super) enum Declaration {
     Parameter,
 }
 
+pub(super) fn field_annotation_direction(modifiers: &Node) -> Direction {
+    let vertical = modifiers.children.iter().any(|modifier| {
+        matches!(modifier, Element::Node(annotation) if annotation.children.iter().any(|child| {
+                matches!(child, Element::Node(arguments) if arguments.kind == NodeKind::AnnotationArguments
+                    && arguments.children.iter().any(|value| matches!(value, Element::Node(_))))
+            }))
+    });
+    match vertical {
+        true => Direction::Vertical,
+        false => Direction::Horizontal,
+    }
+}
+
 fn optional(rest: &[Element], kind: NodeKind) -> (Option<&Node>, &[Element]) {
     match rest {
         [Element::Node(node), tail @ ..] if node.kind == kind => (Some(node), tail),
@@ -560,17 +573,11 @@ impl<'a> Visitor<'a> {
                 let Some(Element::Node(modifiers)) = member.children.first() else {
                     return Err(Unformatted::Deferred);
                 };
-                let vertical = modifiers.children.iter().any(|modifier| {
-                    matches!(modifier, Element::Node(annotation) if annotation.children.iter().any(|child| {
-                            matches!(child, Element::Node(arguments) if arguments.kind == NodeKind::AnnotationArguments
-                                && arguments.children.iter().any(|value| matches!(value, Element::Node(_))))
-                        }))
-                });
-                let direction = match vertical {
-                    true => Direction::Vertical,
-                    false => Direction::Horizontal,
-                };
-                self.variables(member, Declaration::Field, direction)?;
+                self.variables(
+                    member,
+                    Declaration::Field,
+                    field_annotation_direction(modifiers),
+                )?;
             } else {
                 self.scan(member)?;
             }
@@ -914,7 +921,7 @@ impl<'a> Visitor<'a> {
                 self.declare_one(
                     Declaration::Parameter,
                     Direction::Horizontal,
-                    modifiers,
+                    Some(modifiers),
                     ty,
                     varargs,
                     name,
@@ -1042,7 +1049,7 @@ impl<'a> Visitor<'a> {
                 self.declare_one(
                     declaration,
                     direction,
-                    modifiers,
+                    Some(modifiers),
                     ty,
                     None,
                     name,
@@ -1102,7 +1109,7 @@ impl<'a> Visitor<'a> {
         &mut self,
         declaration: Declaration,
         direction: Direction,
-        modifiers: &'a Node,
+        modifiers: Option<&'a Node>,
         ty: &'a Node,
         varargs: Option<&'a Token>,
         name: &'a Token,
@@ -1119,17 +1126,21 @@ impl<'a> Visitor<'a> {
         if let Some(blank_line) = field_blank_line.clone() {
             self.builder.add(Op::BlankLine(blank_line))?;
         }
-        let annotated = modifiers
-            .children
-            .iter()
-            .any(|child| matches!(child, Element::Node(_)));
+        let annotated = modifiers.is_some_and(|modifiers| {
+            modifiers
+                .children
+                .iter()
+                .any(|child| matches!(child, Element::Node(_)))
+        });
         match (declaration, annotated) {
             (Declaration::Parameter, true) => self.builder.add(OPEN_PLUS_FOUR)?,
             (Declaration::Parameter | Declaration::Field | Declaration::Local, _) => {
                 self.builder.add(OPEN_ZERO)?;
             }
         }
-        self.modifiers(modifiers, direction, Some(annotation_break))?;
+        if let Some(modifiers) = modifiers {
+            self.modifiers(modifiers, direction, Some(annotation_break))?;
+        }
         self.builder.add(OPEN_PLUS_FOUR)?;
         self.builder.add(OPEN_ZERO)?;
         self.builder.add(OPEN_ZERO)?;

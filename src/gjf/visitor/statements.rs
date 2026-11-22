@@ -1,9 +1,9 @@
 use super::super::builder::{Op, Unformatted};
 use super::super::doc::HeaderMark;
 use super::super::output::BlankLine;
-use super::declarations::Declaration;
+use super::declarations::{Declaration, field_annotation_direction};
 use super::{
-    CLOSE, Direction, FILL_SPACE, FORCED, OPEN_PLUS_FOUR, OPEN_PLUS_TWO, OPEN_ZERO, PLUS_TWO,
+    CLOSE, Direction, FILL, FILL_SPACE, FORCED, OPEN_PLUS_FOUR, OPEN_PLUS_TWO, OPEN_ZERO, PLUS_TWO,
     SPACE, SPACE_BREAK, Visitor, ZERO,
 };
 use crate::lexer::token::Token;
@@ -319,7 +319,7 @@ impl<'a> Visitor<'a> {
         self.declare_one(
             Declaration::Local,
             Direction::Horizontal,
-            modifiers,
+            Some(modifiers),
             ty,
             None,
             name,
@@ -410,6 +410,190 @@ impl<'a> Visitor<'a> {
                 self.builder.add(CLOSE)
             }
         }
+    }
+
+    pub(super) fn try_statement(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [Element::Token(keyword), rest @ ..] = node.children.as_slice() else {
+            return Err(Unformatted::Deferred);
+        };
+        let (resources, rest) = match rest {
+            [Element::Node(spec), tail @ ..] if spec.kind == NodeKind::ResourceSpecification => {
+                (Some(spec), tail)
+            }
+            tail => (None, tail),
+        };
+        let [Element::Node(body), clauses @ ..] = rest else {
+            return Err(Unformatted::Deferred);
+        };
+        let clauses = clauses
+            .iter()
+            .map(|clause| match clause {
+                Element::Node(clause) => Ok(clause),
+                Element::Token(_) => Err(Unformatted::Deferred),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        self.builder.add(OPEN_ZERO)?;
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        if let Some(resources) = resources {
+            self.resources(resources)?;
+        }
+        let trailing = match clauses.is_empty() {
+            true => (Collapse::Empty, BlankLine::No),
+            false => (Collapse::Never, BlankLine::Preserve),
+        };
+        self.block(body, trailing.0, BlankLine::Preserve, trailing.1)?;
+        for (index, clause) in clauses.iter().enumerate() {
+            let trailing = match index + 1 < clauses.len() {
+                true => BlankLine::Preserve,
+                false => BlankLine::No,
+            };
+            match (
+                clause.kind == NodeKind::CatchClause,
+                clause.children.as_slice(),
+            ) {
+                (true, _) => self.catch_clause(clause, trailing)?,
+                (false, [Element::Token(word), Element::Node(block)]) => {
+                    self.builder.add(SPACE)?;
+                    self.token(word, ZERO, None)?;
+                    self.builder.add(SPACE)?;
+                    self.block(block, Collapse::Never, BlankLine::Preserve, BlankLine::No)?;
+                }
+                (false, _) => return Err(Unformatted::Deferred),
+            }
+        }
+        self.builder.add(CLOSE)
+    }
+
+    fn resources(&mut self, spec: &'a Node) -> Result<(), Unformatted> {
+        let [Element::Token(open), items @ .., Element::Token(close)] = spec.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let count = items
+            .iter()
+            .filter(|item| matches!(item, Element::Node(_)))
+            .count();
+        self.token(open, ZERO, None)?;
+        self.builder.add(Op::Header(HeaderMark::Start))?;
+        match count > 1 {
+            true => self.builder.add(OPEN_PLUS_FOUR)?,
+            false => self.builder.add(OPEN_ZERO)?,
+        }
+        self.builder.add(Op::Fence)?;
+        for (index, item) in items.iter().enumerate() {
+            match item {
+                Element::Token(semicolon) => {
+                    self.token(semicolon, ZERO, None)?;
+                    self.builder.add(SPACE)?;
+                }
+                Element::Node(resource) => {
+                    if index > 0 {
+                        self.builder.add(FORCED)?;
+                    }
+                    match resource.children.as_slice() {
+                        [
+                            Element::Node(modifiers),
+                            Element::Node(ty),
+                            Element::Token(name),
+                            Element::Token(equals),
+                            Element::Node(value),
+                        ] => self.declare_one(
+                            Declaration::Parameter,
+                            field_annotation_direction(modifiers),
+                            Some(modifiers),
+                            ty,
+                            None,
+                            name,
+                            &[],
+                            Some((equals, value)),
+                            None,
+                        )?,
+                        [Element::Node(expression)] => self.scan(expression)?,
+                        _ => return Err(Unformatted::Deferred),
+                    }
+                }
+            }
+        }
+        self.token(close, ZERO, None)?;
+        self.builder.add(CLOSE)?;
+        self.builder.add(Op::Header(HeaderMark::End))?;
+        self.builder.add(SPACE)
+    }
+
+    fn catch_clause(&mut self, clause: &'a Node, trailing: BlankLine) -> Result<(), Unformatted> {
+        let [
+            Element::Token(keyword),
+            Element::Token(open),
+            Element::Node(modifiers),
+            Element::Node(types),
+            Element::Token(name),
+            Element::Token(close),
+            Element::Node(block),
+        ] = clause.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        self.builder.add(SPACE)?;
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        self.token(open, ZERO, None)?;
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        self.builder.add(Op::Fence)?;
+        match types.children.as_slice() {
+            [Element::Node(ty)] => {
+                self.builder.add(FILL)?;
+                self.builder.add(OPEN_ZERO)?;
+                self.declare_one(
+                    Declaration::Local,
+                    field_annotation_direction(modifiers),
+                    Some(modifiers),
+                    ty,
+                    None,
+                    name,
+                    &[],
+                    None,
+                    None,
+                )?;
+                self.builder.add(CLOSE)?;
+            }
+            [alternatives @ .., Element::Token(bar), Element::Node(last)] => {
+                self.builder.add(OPEN_ZERO)?;
+                self.builder.add(OPEN_ZERO)?;
+                self.modifiers(modifiers, Direction::Horizontal, None)?;
+                for alternative in alternatives {
+                    match alternative {
+                        Element::Token(bar) => {
+                            self.builder.add(SPACE_BREAK)?;
+                            self.token(bar, ZERO, None)?;
+                            self.builder.add(SPACE)?;
+                        }
+                        Element::Node(ty) => self.scan(ty)?,
+                    }
+                }
+                self.builder.add(SPACE_BREAK)?;
+                self.token(bar, ZERO, None)?;
+                self.builder.add(SPACE)?;
+                self.declare_one(
+                    Declaration::Local,
+                    Direction::Horizontal,
+                    None,
+                    last,
+                    None,
+                    name,
+                    &[],
+                    None,
+                    None,
+                )?;
+                self.builder.add(CLOSE)?;
+                self.builder.add(CLOSE)?;
+            }
+            _ => return Err(Unformatted::Deferred),
+        }
+        self.builder.add(CLOSE)?;
+        self.token(close, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        self.block(block, Collapse::Never, BlankLine::Preserve, trailing)
     }
 
     pub(super) fn statements(&mut self, statements: &'a [Element]) -> Result<(), Unformatted> {
