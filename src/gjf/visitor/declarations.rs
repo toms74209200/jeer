@@ -56,11 +56,11 @@ impl<'a> Visitor<'a> {
         });
         let mut after_first = false;
         let mut members = Vec::new();
-        for child in &unit.children {
+        for (index, child) in unit.children.iter().enumerate() {
             let Element::Node(node) = child else {
                 return Err(Unformatted::Deferred);
             };
-            if implicit && node.kind != NodeKind::PackageDecl {
+            if implicit && !matches!(node.kind, NodeKind::PackageDecl | NodeKind::ImportDecl) {
                 members.push(node);
                 continue;
             }
@@ -97,6 +97,41 @@ impl<'a> Visitor<'a> {
                 }
                 self.builder.add(CLOSE)?;
                 self.token(semicolon, ZERO, None)?;
+            } else if node.kind == NodeKind::ImportDecl {
+                let after_import = index > 0
+                    && matches!(
+                        &unit.children[index - 1],
+                        Element::Node(Node {
+                            kind: NodeKind::ImportDecl,
+                            ..
+                        })
+                    );
+                if after_first && !after_import {
+                    self.builder.add(Op::BlankLine(BlankLine::Yes))?;
+                }
+                self.builder.add(Op::BlankLine(BlankLine::Preserve))?;
+                let tokens = node
+                    .children
+                    .iter()
+                    .map(|child| match child {
+                        Element::Token(token) => Ok(token),
+                        Element::Node(_) => Err(Unformatted::Deferred),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let qualifier = match tokens.as_slice() {
+                    [_, second, third, ..] => {
+                        second.kind == TokenKind::Keyword(Keyword::Static)
+                            || (&self.source[second.start..second.end] == "module"
+                                && third.kind == TokenKind::Identifier)
+                    }
+                    _ => false,
+                };
+                for (position, token) in tokens.iter().enumerate() {
+                    self.token(token, ZERO, None)?;
+                    if position == 0 || (position == 1 && qualifier) {
+                        self.builder.add(SPACE)?;
+                    }
+                }
             } else {
                 if after_first {
                     self.builder.add(Op::BlankLine(BlankLine::Yes))?;
