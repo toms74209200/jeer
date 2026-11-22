@@ -346,6 +346,18 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/stmt-try/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/stmt-switch-old/input.java"),
+                include_str!("../tests/fixtures/gjf/stmt-switch-old/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/comment-in-switch/input.java"),
+                include_str!("../tests/fixtures/gjf/comment-in-switch/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/string-switch-case/input.java"),
+                include_str!("../tests/fixtures/gjf/string-switch-case/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),

@@ -3,10 +3,10 @@ use super::super::doc::HeaderMark;
 use super::super::output::BlankLine;
 use super::declarations::{Declaration, field_annotation_direction};
 use super::{
-    CLOSE, Direction, FILL, FILL_SPACE, FORCED, OPEN_PLUS_FOUR, OPEN_PLUS_TWO, OPEN_ZERO, PLUS_TWO,
-    SPACE, SPACE_BREAK, Visitor, ZERO,
+    CLOSE, Direction, FILL, FILL_SPACE, FORCED, OPEN_PLUS_FOUR, OPEN_PLUS_TWO, OPEN_ZERO,
+    PLUS_FOUR, PLUS_TWO, SPACE, SPACE_BREAK, Visitor, ZERO,
 };
-use crate::lexer::token::Token;
+use crate::lexer::token::{Punct, Token, TokenKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Collapse {
@@ -594,6 +594,126 @@ impl<'a> Visitor<'a> {
         self.token(close, ZERO, None)?;
         self.builder.add(SPACE)?;
         self.block(block, Collapse::Never, BlankLine::Preserve, trailing)
+    }
+
+    pub(super) fn switch_statement(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [
+            Element::Token(keyword),
+            Element::Node(condition),
+            Element::Node(block),
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let [Element::Token(open), entries @ .., Element::Token(close)] = block.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        self.header(condition)?;
+        self.builder.add(SPACE)?;
+        self.token(open, ZERO, Some(PLUS_TWO))?;
+        self.builder.add(Op::BlankLine(BlankLine::No))?;
+        self.builder.add(OPEN_PLUS_TWO)?;
+        for (index, entry) in entries.iter().enumerate() {
+            let Element::Node(entry) = entry else {
+                return Err(Unformatted::Deferred);
+            };
+            if index > 0 {
+                self.builder.add(Op::BlankLine(BlankLine::Preserve))?;
+            }
+            self.case(entry)?;
+        }
+        self.builder.add(CLOSE)?;
+        self.builder.add(FORCED)?;
+        self.builder.add(Op::BlankLine(BlankLine::No))?;
+        self.token(close, PLUS_FOUR, None)
+    }
+
+    fn case(&mut self, entry: &'a Node) -> Result<(), Unformatted> {
+        let [Element::Node(label), Element::Token(separator), rest @ ..] =
+            entry.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let rule = entry.kind == NodeKind::SwitchRule;
+        self.sync(entry)?;
+        self.builder.add(FORCED)?;
+        match rule {
+            true => self.builder.add(OPEN_PLUS_FOUR)?,
+            false => self.builder.add(OPEN_ZERO)?,
+        }
+        let (items, guard) = match label.children.as_slice() {
+            [items @ .., Element::Node(guard)] if guard.kind == NodeKind::Guard => {
+                (items, Some(guard))
+            }
+            items => (items, None),
+        };
+        match items {
+            [Element::Token(word)] => self.token(word, ZERO, None)?,
+            [Element::Token(word), labels @ ..] => {
+                self.token(word, ZERO, None)?;
+                self.builder.add(OPEN_ZERO)?;
+                self.builder.add(SPACE)?;
+                for item in labels {
+                    match item {
+                        Element::Token(token) if token.kind == TokenKind::Punct(Punct::Comma) => {
+                            self.token(token, ZERO, None)?;
+                            self.builder.add(SPACE_BREAK)?;
+                        }
+                        Element::Token(token) => self.token(token, ZERO, None)?,
+                        Element::Node(expression) => self.scan(expression)?,
+                    }
+                }
+                self.builder.add(CLOSE)?;
+            }
+            _ => return Err(Unformatted::Deferred),
+        }
+        if let Some(guard) = guard {
+            let [Element::Token(word), Element::Node(condition)] = guard.children.as_slice() else {
+                return Err(Unformatted::Deferred);
+            };
+            self.builder.add(FILL_SPACE)?;
+            self.token(word, ZERO, None)?;
+            self.builder.add(SPACE)?;
+            self.scan(condition)?;
+        }
+        match (rule, rest) {
+            (false, statements) => {
+                self.token(separator, ZERO, None)?;
+                self.builder.add(OPEN_PLUS_TWO)?;
+                self.statements(statements)?;
+                self.builder.add(CLOSE)?;
+                self.builder.add(CLOSE)
+            }
+            (true, [Element::Node(body)]) => {
+                self.builder.add(SPACE)?;
+                self.token(separator, ZERO, None)?;
+                match (body.kind, body.children.as_slice()) {
+                    (NodeKind::Block, _) => {
+                        self.builder.add(CLOSE)?;
+                        self.builder.add(SPACE)?;
+                        self.block(body, Collapse::Empty, BlankLine::No, BlankLine::No)
+                    }
+                    (
+                        NodeKind::ExpressionStmt,
+                        [Element::Node(expression), Element::Token(semicolon)],
+                    ) => {
+                        self.builder.add(SPACE_BREAK)?;
+                        self.scan(expression)?;
+                        self.builder.add(CLOSE)?;
+                        self.token(semicolon, ZERO, None)
+                    }
+                    (_, _) => {
+                        self.builder.add(SPACE_BREAK)?;
+                        self.scan(body)?;
+                        self.builder.add(CLOSE)
+                    }
+                }
+            }
+            (true, _) => Err(Unformatted::Deferred),
+        }
     }
 
     pub(super) fn statements(&mut self, statements: &'a [Element]) -> Result<(), Unformatted> {
