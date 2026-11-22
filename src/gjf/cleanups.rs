@@ -66,6 +66,16 @@ fn body_semicolons(context: &Context, body: &Node, owner: &Node) -> Vec<Request>
             Element::Node(_) | Element::Token(_) => None,
         })
         .collect();
+    let arguments = owner
+        .children
+        .iter()
+        .filter_map(|child| match child {
+            Element::Node(arguments) if arguments.kind == NodeKind::Arguments => Some(arguments),
+            Element::Node(_) | Element::Token(_) => None,
+        })
+        .flat_map(|arguments| &arguments.children)
+        .filter(|argument| matches!(argument, Element::Node(_)))
+        .count();
     let last_constant_end = members
         .iter()
         .filter(|(kind, _)| *kind == NodeKind::EnumConstant)
@@ -81,7 +91,8 @@ fn body_semicolons(context: &Context, body: &Node, owner: &Node) -> Vec<Request>
         .iter()
         .find(|semicolon| (last_constant_end..first_member_start).contains(semicolon))
         .filter(|_| {
-            matches!(owner.kind, NodeKind::EnumDecl | NodeKind::EnumConstant) && !members.is_empty()
+            matches!(owner.kind, NodeKind::EnumDecl | NodeKind::EnumConstant)
+                && (!members.is_empty() || arguments > 0)
         })
         .map(|&semicolon| (semicolon, semicolon + 1));
     let nodes = body.children.iter().filter_map(|child| match child {
@@ -410,6 +421,8 @@ mod tests {
                 "enum E { X(() -> { f(); }) { ; void g() {} }; }\n",
                 "enum E { X(() -> { f(); }) {void g() {} }; }\n",
             ),
+            ("enum E { X(1) { ; } }\n", "enum E { X(1) { ; } }\n"),
+            ("enum E { X() { ; } }\n", "enum E { X() {} }\n"),
             ("class A { void f() { ; } }\n", "class A { void f() {} }\n"),
             (
                 "class A { void f() {\n  ;\n} }\n",
