@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use crate::gjf;
 use crate::lexer;
 use crate::parser;
@@ -66,35 +68,45 @@ pub fn compose(steps: Vec<Step>) -> impl Fn(&str) -> Result<String, Located> {
 
 const MAX_CYCLE: usize = 10;
 
+fn settle<F>(format: &F, source: &str, applied: Vec<String>) -> Result<String, Located>
+where
+    F: Fn(&str) -> Result<String, Located>,
+{
+    let last = &applied[applied.len() - 1];
+    if (applied.len() == 1 && last == source) || applied.len() == MAX_CYCLE {
+        return Ok(source.to_owned());
+    }
+    let next = format(last)?;
+    if next == *last {
+        return Ok(next);
+    }
+    match applied.iter().position(|text| *text == next) {
+        Some(start) => {
+            Ok(applied[start + 1..]
+                .iter()
+                .fold(applied[start].clone(), |least, text| {
+                    match text
+                        .encode_utf16()
+                        .count()
+                        .cmp(&least.encode_utf16().count())
+                        .then_with(|| text.encode_utf16().cmp(least.encode_utf16()))
+                    {
+                        Ordering::Less => text.clone(),
+                        Ordering::Equal | Ordering::Greater => least,
+                    }
+                }))
+        }
+        None => settle(format, source, applied.into_iter().chain([next]).collect()),
+    }
+}
+
 pub fn padded_cell<F>(format: F) -> impl Fn(&str) -> Result<String, Located>
 where
     F: Fn(&str) -> Result<String, Located>,
 {
     move |source| {
-        let mut applied = vec![format(source)?];
-        loop {
-            let last = &applied[applied.len() - 1];
-            if applied.len() == 1 && last == source {
-                return Ok(source.to_owned());
-            }
-            if applied.len() == MAX_CYCLE {
-                return Ok(source.to_owned());
-            }
-            let next = format(last)?;
-            if next == *last {
-                return Ok(next);
-            }
-            if let Some(start) = applied.iter().position(|text| *text == next) {
-                let canonical = applied[start..].iter().min_by(|a, b| {
-                    a.encode_utf16()
-                        .count()
-                        .cmp(&b.encode_utf16().count())
-                        .then_with(|| a.encode_utf16().cmp(b.encode_utf16()))
-                });
-                return Ok(canonical.map_or(next.clone(), Clone::clone));
-            }
-            applied.push(next);
-        }
+        let once = format(source)?;
+        settle(&format, source, vec![once])
     }
 }
 
