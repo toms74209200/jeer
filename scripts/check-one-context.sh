@@ -6,9 +6,9 @@ cd "$root" || exit 2
 base=$(git merge-base HEAD origin/master 2>/dev/null || git merge-base HEAD master) || exit 2
 mkdir -p out || exit 2
 untracked=$(git ls-files --others --exclude-standard -- 'src/*.rs') || exit 2
-git diff -U0 "$base" -- 'src/*.rs' >out/one-context.diff || exit 2
+git diff -U0 --no-renames "$base" -- 'src/*.rs' >out/one-context.diff || exit 2
 for file in $untracked; do
-	git diff -U0 --no-index /dev/null "$file" >>out/one-context.diff
+	git diff -U0 --no-renames --no-index /dev/null "$file" >>out/one-context.diff
 	[ $? -le 1 ] || exit 2
 done
 python3 -I - out/one-context.diff "$base" <<'PY'

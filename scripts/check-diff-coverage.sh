@@ -9,9 +9,9 @@ scripts/test-small.sh >/dev/null 2>&1
 status=$?
 [ $status -eq 0 ] || exit $status
 untracked=$(git ls-files --others --exclude-standard -- 'src/*.rs') || exit 2
-git diff -U0 "$base" -- 'src/*.rs' >out/diff-coverage.diff || exit 2
+git diff -U0 --no-renames "$base" -- 'src/*.rs' >out/diff-coverage.diff || exit 2
 for file in $untracked; do
-	git diff -U0 --no-index /dev/null "$file" >>out/diff-coverage.diff
+	git diff -U0 --no-renames --no-index /dev/null "$file" >>out/diff-coverage.diff
 	[ $? -le 1 ] || exit 2
 done
 python3 -I - out/diff-coverage.diff out/small.lcov scripts/side-effect-modules.txt "$root" <<'PY'
@@ -46,16 +46,18 @@ for line in open(diff):
     elif line.startswith("@@") and path is not None:
         found = re.match(r"@@ -\S+ \+(\d+)(?:,(\d+))? @@", line)
         start, length = int(found.group(1)), int(found.group(2) or "1")
-        added.setdefault(path, []).extend(range(start, start + length))
+        if length > 0:
+            added.setdefault(path, []).extend(range(start, start + length))
 uncovered = []
 for path, lines in sorted(added.items()):
     if any(path == entry or (entry.endswith("/") and path.startswith(entry)) for entry in side_effects):
         continue
-    if path not in counts:
-        uncovered.append("%s: no small test runs this file (it is not in out/small.lcov)" % path)
-        continue
     source = open(path).read().split("\n")
     tests = next((index + 1 for index, text in enumerate(source) if text.strip() == "#[cfg(test)]"), len(source) + 1)
+    if path not in counts:
+        if any(re.search(r"\bfn\b", text) for text in source[: tests - 1]):
+            uncovered.append("%s: no small test runs this file (it is not in out/small.lcov)" % path)
+        continue
     for number in lines:
         if number < tests and counts[path].get(number) == 0:
             uncovered.append("%s:%d: %s" % (path, number, source[number - 1].strip()))

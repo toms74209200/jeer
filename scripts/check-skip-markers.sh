@@ -9,9 +9,11 @@ committed=$(git diff --name-only --diff-filter=A "$base" -- 'tests/fixtures/*/*/
 untracked=$(git ls-files --others --exclude-standard -- 'tests/fixtures/*/*/skip') || exit 2
 added=$(printf '%s\n%s\n' "$committed" "$untracked" | sed '/^$/d' | sort -u) || exit 2
 [ -n "$added" ] || { echo "skip-markers: no skip marker added"; exit 0; }
+cargo build --quiet --release --bin jeer || exit 2
 failures=0
 for marker in $added; do
 	dir=$(dirname "$marker")
+	[ -e "$dir/input.java" ] || { echo "skip-markers: $dir is not a fixture" >&2; exit 2; }
 	scripts/test-fixtures.sh "$dir" >/dev/null
 	status=$?
 	case $status in
