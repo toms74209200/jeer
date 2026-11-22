@@ -278,9 +278,7 @@ int b;
             ),
         ];
         for (input, expected) in cases {
-            let output =
-                preserving(|text| Ok(crate::steps::trim_trailing_whitespace::apply(text)))(input)
-                    .ok();
+            let output = preserving(crate::steps::trim_trailing_whitespace::apply)(input).ok();
 
             assert_eq!(output.as_deref(), expected, "{input:?}");
         }

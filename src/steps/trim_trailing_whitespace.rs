@@ -1,9 +1,11 @@
-pub fn apply(text: &str) -> String {
+use crate::pipeline::Rejection;
+
+pub fn apply(text: &str) -> Result<String, Rejection> {
     let lines: Vec<&str> = text
         .split('\n')
         .map(|line| line.trim_end_matches([' ', '\t']))
         .collect();
-    lines.join("\n")
+    Ok(lines.join("\n"))
 }
 
 #[cfg(test)]
@@ -23,7 +25,7 @@ mod tests {
         for (text, expected) in cases {
             let trimmed = apply(text);
 
-            assert_eq!(trimmed, expected, "{text:?}");
+            assert_eq!(trimmed, Ok(expected.to_owned()), "{text:?}");
         }
     }
 }

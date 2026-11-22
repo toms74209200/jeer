@@ -1,3 +1,5 @@
+use crate::pipeline::Rejection;
+
 pub struct UnixText(String);
 
 impl From<&str> for UnixText {
@@ -14,6 +16,11 @@ impl From<UnixText> for String {
     fn from(text: UnixText) -> Self {
         text.0
     }
+}
+
+pub fn apply(text: &str) -> Result<String, Rejection> {
+    let unix = UnixText::from(text);
+    Ok(String::from(unix))
 }
 
 #[cfg(test)]

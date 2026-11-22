@@ -3,7 +3,7 @@ mod args;
 use args::Invocation;
 
 use crate::io;
-use crate::pipeline::{Pipeline, Profile};
+use crate::pipeline::Profile;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {
@@ -62,7 +62,7 @@ pub fn plan(args: &[String]) -> Result<Plan, Usage> {
 
 pub fn run(plan: Plan, inputs: &io::Inputs) -> Outcome {
     let source = String::from_utf8_lossy(&inputs.stdin);
-    match Pipeline::from(plan.profile).run(&source) {
+    match plan.profile.pipeline()(&source) {
         Ok(formatted) if formatted.as_bytes() == inputs.stdin => Outcome::Unchanged(formatted),
         Ok(formatted) => Outcome::Changed(formatted),
         Err(rejection) => Outcome::Rejected(format!(

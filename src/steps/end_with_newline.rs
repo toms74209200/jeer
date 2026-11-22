@@ -1,6 +1,8 @@
-pub fn apply(text: &str) -> String {
+use crate::pipeline::Rejection;
+
+pub fn apply(text: &str) -> Result<String, Rejection> {
     let content = text.trim_end_matches([' ', '\t', '\n']);
-    format!("{content}\n")
+    Ok(format!("{content}\n"))
 }
 
 #[cfg(test)]
@@ -20,7 +22,7 @@ mod tests {
         for (text, expected) in cases {
             let ended = apply(text);
 
-            assert_eq!(ended, expected, "{text:?}");
+            assert_eq!(ended, Ok(expected.to_owned()), "{text:?}");
         }
     }
 }

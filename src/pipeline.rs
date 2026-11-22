@@ -2,7 +2,6 @@ use crate::gjf;
 use crate::lexer;
 use crate::parser;
 use crate::steps;
-use crate::steps::line_endings::UnixText;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Position {
@@ -57,21 +56,11 @@ impl Located {
     }
 }
 
-pub fn total(step: fn(&str) -> String) -> impl Fn(&str) -> Result<String, Rejection> {
-    move |text| Ok(step(text))
-}
-
-pub struct Pipeline {
-    steps: Vec<Step>,
-}
-
-impl Pipeline {
-    pub fn run(&self, source: &str) -> Result<String, Located> {
-        let mut text = source.to_owned();
-        for step in &self.steps {
-            text = step(&text).map_err(|rejection| Located::at(&text, rejection))?;
-        }
-        Ok(text)
+pub fn compose(steps: Vec<Step>) -> impl Fn(&str) -> Result<String, Located> {
+    move |source| {
+        steps.iter().try_fold(source.to_owned(), |text, step| {
+            step(&text).map_err(|rejection| Located::at(&text, rejection))
+        })
     }
 }
 
@@ -105,20 +94,25 @@ impl std::str::FromStr for Profile {
 
 impl Profile {
     fn steps(self) -> Vec<Step> {
-        let unix = || -> Step { Box::new(total(|text| String::from(UnixText::from(text)))) };
         match self {
             Profile::Whitespace => vec![
-                unix(),
-                Box::new(total(steps::trim_trailing_whitespace::apply)),
-                Box::new(total(steps::end_with_newline::apply)),
+                Box::new(steps::line_endings::apply),
+                Box::new(steps::trim_trailing_whitespace::apply),
+                Box::new(steps::end_with_newline::apply),
             ],
-            Profile::ImportOrder => vec![unix(), Box::new(steps::import_order::apply)],
-            Profile::UnusedImports => vec![unix(), Box::new(steps::unused_imports::apply)],
+            Profile::ImportOrder => vec![
+                Box::new(steps::line_endings::apply),
+                Box::new(steps::import_order::apply),
+            ],
+            Profile::UnusedImports => vec![
+                Box::new(steps::line_endings::apply),
+                Box::new(steps::unused_imports::apply),
+            ],
             Profile::Toggle => vec![
-                unix(),
-                Box::new(steps::toggle::preserving(total(
+                Box::new(steps::line_endings::apply),
+                Box::new(steps::toggle::preserving(
                     steps::trim_trailing_whitespace::apply,
-                ))),
+                )),
             ],
             Profile::LexerRoundtrip => vec![Box::new(|source: &str| {
                 lexer::scan(source)
@@ -148,16 +142,17 @@ impl Profile {
                         message: e.message,
                     })
             })],
-            Profile::Gjf => vec![unix(), Box::new(gjf::step(gjf::Options::default()))],
+            Profile::Gjf => vec![
+                Box::new(steps::line_endings::apply),
+                Box::new(gjf::step(gjf::Options::default())),
+            ],
         }
     }
 }
 
-impl From<Profile> for Pipeline {
-    fn from(profile: Profile) -> Self {
-        Pipeline {
-            steps: profile.steps(),
-        }
+impl Profile {
+    pub fn pipeline(self) -> impl Fn(&str) -> Result<String, Located> {
+        compose(self.steps())
     }
 }
 
@@ -175,7 +170,7 @@ mod tests {
             ("a\rb\r", "a\nb\n"),
         ];
         for (source, expected) in cases {
-            let formatted = Pipeline::from(Profile::Whitespace).run(source);
+            let formatted = Profile::Whitespace.pipeline()(source);
 
             assert_eq!(formatted, Ok(expected.to_owned()), "{source:?}");
         }
@@ -198,7 +193,7 @@ mod tests {
             ),
         ];
         for (source, expected) in cases {
-            let formatted = Pipeline::from(Profile::LexerRoundtrip).run(source);
+            let formatted = Profile::LexerRoundtrip.pipeline()(source);
 
             assert_eq!(formatted, expected, "{source:?}");
         }
@@ -214,9 +209,8 @@ mod tests {
             ("class A { int x = 1 }", Err((1, 21))),
         ];
         for (source, expected) in cases {
-            let formatted = Pipeline::from(Profile::CstRoundtrip)
-                .run(source)
-                .map_err(|r| (r.line, r.column));
+            let formatted =
+                Profile::CstRoundtrip.pipeline()(source).map_err(|r| (r.line, r.column));
 
             assert_eq!(formatted, expected, "{source:?}");
         }
@@ -241,9 +235,7 @@ mod tests {
             ("class A {\r\n\r\n\r\n  int x = 1 }", Err((4, 13))),
         ];
         for (source, expected) in cases {
-            let formatted = Pipeline::from(Profile::Gjf)
-                .run(source)
-                .map_err(|r| (r.line, r.column));
+            let formatted = Profile::Gjf.pipeline()(source).map_err(|r| (r.line, r.column));
 
             assert_eq!(formatted, expected, "{source:?}");
         }
@@ -275,9 +267,7 @@ mod tests {
             ),
         ];
         for (profile, source, expected) in cases {
-            let formatted = Pipeline::from(profile)
-                .run(source)
-                .map_err(|r| (r.line, r.column));
+            let formatted = profile.pipeline()(source).map_err(|r| (r.line, r.column));
 
             assert_eq!(formatted, expected, "{source:?}");
         }
