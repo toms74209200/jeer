@@ -362,6 +362,18 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/stmt-synchronized/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/stmt-assert-plain/input.java"),
+                include_str!("../tests/fixtures/gjf/stmt-assert-plain/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/stmt-synchronized-wrap/input.java"),
+                include_str!("../tests/fixtures/gjf/stmt-synchronized-wrap/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/stmt-local-class-plain/input.java"),
+                include_str!("../tests/fixtures/gjf/stmt-local-class-plain/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
