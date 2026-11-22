@@ -28,13 +28,24 @@ pub fn read(requests: &[Request]) -> Result<Inputs, Failure> {
         .map_err(|e| Failure(format!("cannot read stdin: {e}")))
 }
 
-pub fn write(writes: &Writes) -> Result<(), Failure> {
+#[derive(Debug, PartialEq, Eq)]
+pub enum Written {
+    Done,
+    StdoutFailed,
+    StderrFailed,
+}
+
+pub fn write(writes: &Writes) -> Written {
     let stdout = std::io::stdout()
         .write_all(writes.stdout.as_bytes())
-        .and_then(|()| std::io::stdout().flush())
-        .map_err(|e| Failure(format!("cannot write stdout: {e}")));
-    let stderr = std::io::stderr()
-        .write_all(writes.stderr.as_bytes())
-        .map_err(|e| Failure(format!("cannot write stderr: {e}")));
-    stdout.and(stderr)
+        .and_then(|()| std::io::stdout().flush());
+    let stderr = stdout.as_ref().map_or_else(
+        |e| format!("{}jeer: cannot write stdout: {e}\n", writes.stderr),
+        |()| writes.stderr.to_owned(),
+    );
+    match (stdout, std::io::stderr().write_all(stderr.as_bytes())) {
+        (_, Err(_)) => Written::StderrFailed,
+        (Err(_), Ok(())) => Written::StdoutFailed,
+        (Ok(()), Ok(())) => Written::Done,
+    }
 }

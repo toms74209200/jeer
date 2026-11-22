@@ -27,20 +27,14 @@ fn main() {
         },
     );
     let response = Response::from(outcome);
-    let code = io::write(&io::Writes {
+    let code = match io::write(&io::Writes {
         stdout: &response.stdout,
         stderr: &response.stderr,
-    })
-    .map_or_else(
-        |io::Failure(e)| {
-            let internal = Response::from(Outcome::Internal(String::new())).code;
-            io::write(&io::Writes {
-                stdout: "",
-                stderr: &format!("jeer: {e}\n"),
-            })
-            .map_or(internal, |()| internal)
-        },
-        |()| response.code,
-    );
+    }) {
+        io::Written::Done => response.code,
+        io::Written::StdoutFailed | io::Written::StderrFailed => {
+            Response::from(Outcome::Internal(String::new())).code
+        }
+    };
     std::process::exit(code);
 }

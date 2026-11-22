@@ -30,5 +30,12 @@ if [ $status -ne 3 ] || ! grep -qF 'jeer: cannot write stdout:' "$out/stderr"; t
 	failures=$((failures + 1))
 fi
 
+printf 'class A {\n' | "$bin" --stdin --profile gjf >"$out/stdout" 2>/dev/full
+status=$?
+if [ $status -ne 3 ] || [ -s "$out/stdout" ]; then
+	echo "FAIL failing stderr write: exit $status"
+	failures=$((failures + 1))
+fi
+
 [ $failures -eq 0 ] && { echo "io: all cases pass"; exit 0; }
 exit 1
