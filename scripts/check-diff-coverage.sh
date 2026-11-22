@@ -4,13 +4,14 @@ set -u
 root=$(git rev-parse --show-toplevel) || exit 2
 cd "$root" || exit 2
 base=$(git merge-base HEAD origin/master 2>/dev/null || git merge-base HEAD master) || exit 2
+mkdir -p out || exit 2
 newest=$(find src -name '*.rs' -newer out/small.lcov 2>/dev/null | head -1)
 if [ ! -e out/small.lcov ] || [ -n "$newest" ]; then
 	scripts/test-small.sh >/dev/null 2>&1
 	status=$?
 	[ $status -eq 0 ] || exit $status
 fi
-git diff -U0 "$base" -- 'src/*.rs' >out/diff-coverage.diff || exit 2
+{ git diff -U0 "$base" -- 'src/*.rs' || exit 2; git ls-files --others --exclude-standard -- 'src/*.rs' | while read -r file; do git diff -U0 --no-index /dev/null "$file"; done; } >out/diff-coverage.diff
 python3 -I - out/diff-coverage.diff out/small.lcov scripts/side-effect-modules.txt "$root" <<'PY'
 import re
 import sys
@@ -39,7 +40,7 @@ path = None
 for line in open(diff):
     if line.startswith("+++ "):
         target = line[4:].strip()
-        path = None if target == "/dev/null" else target[2:]
+        path = None if target == "/dev/null" else target.split("/", 1)[1]
     elif line.startswith("@@") and path is not None:
         found = re.match(r"@@ -\S+ \+(\d+)(?:,(\d+))? @@", line)
         start, length = int(found.group(1)), int(found.group(2) or "1")

@@ -4,7 +4,8 @@ set -u
 root=$(git rev-parse --show-toplevel) || exit 2
 cd "$root" || exit 2
 base=$(git merge-base HEAD origin/master 2>/dev/null || git merge-base HEAD master) || exit 2
-git diff -U0 "$base" -- 'src/*.rs' >out/one-context.diff || exit 2
+mkdir -p out || exit 2
+{ git diff -U0 "$base" -- 'src/*.rs' || exit 2; git ls-files --others --exclude-standard -- 'src/*.rs' | while read -r file; do git diff -U0 --no-index /dev/null "$file"; done; } >out/one-context.diff
 python3 -I - out/one-context.diff "$base" <<'PY'
 import re
 import subprocess
@@ -32,27 +33,37 @@ def old_text(path):
 
 contexts = {}
 old_path = new_path = None
+old_line = new_line = 0
+old_tests = new_tests = 0
+
+
+def record(path):
+    if path != "src/main.rs":
+        context = path[len("src/"):].split("/")[0]
+        context = context[:-3] if context.endswith(".rs") else context
+        contexts.setdefault(context, set()).add(path)
+
+
 for line in open(diff):
     if line.startswith("--- "):
         source = line[4:].strip()
-        old_path = None if source == "/dev/null" else source[2:]
+        old_path = None if source == "/dev/null" else source.split("/", 1)[1]
+        old_tests = test_start(old_text(old_path)) if old_path else 0
     elif line.startswith("+++ "):
         target = line[4:].strip()
-        new_path = None if target == "/dev/null" else target[2:]
+        new_path = None if target == "/dev/null" else target.split("/", 1)[1]
+        new_tests = test_start(open(new_path).read()) if new_path else 0
     elif line.startswith("@@"):
-        found = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
-        old_start, old_length = int(found.group(1)), int(found.group(2) or "1")
-        new_start, new_length = int(found.group(3)), int(found.group(4) or "1")
-        production = False
-        if new_path is not None and new_length > 0:
-            production |= new_start < test_start(open(new_path).read())
-        if old_path is not None and old_length > 0:
-            production |= old_start < test_start(old_text(old_path))
-        path = new_path or old_path
-        if production and path != "src/main.rs":
-            context = path[len("src/"):].split("/")[0]
-            context = context[:-3] if context.endswith(".rs") else context
-            contexts.setdefault(context, set()).add(path)
+        found = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", line)
+        old_line, new_line = int(found.group(1)), int(found.group(2))
+    elif line.startswith("-") and old_path:
+        if line[1:].strip() and old_line < old_tests:
+            record(old_path)
+        old_line += 1
+    elif line.startswith("+") and new_path:
+        if line[1:].strip() and new_line < new_tests:
+            record(new_path)
+        new_line += 1
 for context, paths in sorted(contexts.items()):
     print("%s: %s" % (context, ", ".join(sorted(paths))))
 if len(contexts) > 1:

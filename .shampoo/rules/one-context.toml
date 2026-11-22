@@ -1,5 +1,5 @@
 rule = "A task's production code stays in one bounded context: the diff against the merge-base changes code outside `#[cfg(test)]` in at most one `src/<context>` root, src/main.rs excepted (tasks policy, docs/design.md §7.1, docs/development.md §8.1)."
 check = "one-context"
 transitions = ["task", "pr"]
-paths = ["src/**", "scripts/check-one-context.sh"]
+paths = ["**.rs", "scripts/check-one-context.sh"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }
