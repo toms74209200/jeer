@@ -1,5 +1,6 @@
 use super::token::{LexError, LexErrorKind};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Translated {
     pub chars: Vec<char>,
     pub offsets: Vec<usize>,

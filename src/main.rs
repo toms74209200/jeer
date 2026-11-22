@@ -1,7 +1,7 @@
 mod cli;
 #[expect(
     dead_code,
-    reason = "the Doc printer is used by the gjf formatter from task 110 on"
+    reason = "statement headers, hugged lambdas and text blocks reach the visitor in tasks 120 to 150"
 )]
 mod gjf;
 mod lexer;

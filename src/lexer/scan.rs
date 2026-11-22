@@ -87,16 +87,34 @@ pub fn next_token(chars: &[char], start: usize) -> Scanned {
     }
 }
 
-fn escape(chars: &[char], backslash: usize) -> Result<usize, LexErrorKind> {
+pub fn escape_value(chars: &[char], backslash: usize) -> (char, usize) {
     let at = |i: usize| chars.get(i).copied();
     match at(backslash + 1) {
-        Some('b' | 's' | 't' | 'n' | 'f' | 'r' | '"' | '\'' | '\\') => Ok(backslash + 2),
+        Some('b') => ('\u{8}', backslash + 2),
+        Some('s') => (' ', backslash + 2),
+        Some('t') => ('\t', backslash + 2),
+        Some('n') => ('\n', backslash + 2),
+        Some('f') => ('\u{c}', backslash + 2),
+        Some('r') => ('\r', backslash + 2),
         Some(first @ '0'..='7') => {
             let longest = if first <= '3' { 3 } else { 2 };
-            let digits = (1..longest)
-                .take_while(|k| at(backslash + 1 + k).is_some_and(|c| ('0'..='7').contains(&c)))
-                .count();
-            Ok(backslash + 2 + digits)
+            let digits: Vec<u8> = chars[backslash + 1..]
+                .iter()
+                .take(longest)
+                .map_while(|c| c.to_digit(8).and_then(|digit| u8::try_from(digit).ok()))
+                .collect();
+            let value = digits.iter().fold(0u8, |value, digit| value * 8 + digit);
+            (char::from(value), backslash + 1 + digits.len())
+        }
+        Some(other) => (other, backslash + 2),
+        None => ('\\', backslash + 1),
+    }
+}
+
+fn escape(chars: &[char], backslash: usize) -> Result<usize, LexErrorKind> {
+    match chars.get(backslash + 1) {
+        Some('b' | 's' | 't' | 'n' | 'f' | 'r' | '"' | '\'' | '\\' | '0'..='7') => {
+            Ok(escape_value(chars, backslash).1)
         }
         _ => Err(LexErrorKind::IllegalEscape),
     }

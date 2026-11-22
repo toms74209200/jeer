@@ -1,3 +1,5 @@
+use crate::gjf;
+use crate::gjf::builder::Unformatted;
 use crate::lexer;
 use crate::parser;
 use crate::steps;
@@ -89,12 +91,14 @@ impl Profile {
             }
             Profile::LexerRoundtrip => {
                 let tokens = lexer::scan(source)
-                    .map_err(|e| Rejection::at(source, e.offset, e.kind.to_string()))?;
+                    .map_err(|e| Rejection::at(source, e.offset, e.kind.to_string()))?
+                    .tokens;
                 Ok(tokens.iter().map(|t| &source[t.start..t.end]).collect())
             }
             Profile::CstRoundtrip => {
                 let tree = parser::parse(source)
-                    .map_err(|e| Rejection::at(source, e.offset, e.message))?;
+                    .map_err(|e| Rejection::at(source, e.offset, e.message))?
+                    .tree;
                 Ok(tree
                     .tokens()
                     .iter()
@@ -103,8 +107,15 @@ impl Profile {
             }
             Profile::Gjf => {
                 let unix = String::from(UnixText::from(source));
-                parser::parse(&unix).map_err(|e| Rejection::at(&unix, e.offset, e.message))?;
-                Ok(unix)
+                let unit =
+                    parser::parse(&unix).map_err(|e| Rejection::at(&unix, e.offset, e.message))?;
+                match gjf::format(&unix, &unit) {
+                    Ok(formatted) => Ok(formatted),
+                    Err(Unformatted::Deferred) => Ok(unix),
+                    Err(Unformatted::Rejected { offset, message }) => {
+                        Err(Rejection::at(&unix, offset, message))
+                    }
+                }
             }
         }
     }
@@ -172,9 +183,18 @@ mod tests {
     }
 
     #[test]
-    fn when_format_with_gjf_then_returns_unix_text_of_valid_input_or_the_syntax_error() {
+    fn when_format_with_gjf_then_returns_formatted_or_kept_text_or_the_rejection() {
         let cases = [
             ("class A {}\r\n", Ok("class A {}\n".to_owned())),
+            (
+                "class A{int x;}\n",
+                Ok("class A {\n  int x;\n}\n".to_owned()),
+            ),
+            (
+                "import a.B;\r\nclass A{}\r\n",
+                Ok("import a.B;\nclass A{}\n".to_owned()),
+            ),
+            ("class A { int \\u0061b; }\n", Err((1, 15))),
             ("class A {}\r", Ok("class A {}\n".to_owned())),
             ("class A {", Err((1, 10))),
             ("class A {\r\nvoid é;\r\n}\r\n", Err((2, 7))),
