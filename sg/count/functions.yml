@@ -1,0 +1,13 @@
+id: production-functions
+language: Rust
+severity: info
+message: A production function.
+rule:
+  kind: function_item
+  not:
+    inside:
+      kind: mod_item
+      stopBy: end
+      follows:
+        kind: attribute_item
+        regex: ^#\[cfg\(test\)\]$

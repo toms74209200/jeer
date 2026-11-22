@@ -1,0 +1,9 @@
+review = true
+text = '''
+Values are built, not mutated: a binding is computed once from a
+product of applications (`map`, `filter_map`, `fold`, `and_then`, `?`,
+iterator chains, `match`), not assembled by mutating it over a long
+stretch of code.
+- A production function holds at most two mutable bindings (`let mut`, `mut` parameters and patterns); the mutability check counts them, and the functions over the limit listed in scripts/mut-baseline.txt only get fewer
+- A mutable binding that remains lives in the smallest block that needs it, such as a sort inside a block expression, an iterator being consumed, or a builder that the type requires (`&mut self` methods are not bindings)
+- State that a loop threads through is a `fold`'s accumulator or a recursive function's arguments, not variables declared before the loop'''

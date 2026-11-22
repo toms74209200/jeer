@@ -46,6 +46,8 @@ jobs:
         run: scripts/check-sg.sh test-helpers
       - name: Check exceptions
         run: scripts/check-sg.sh exceptions
+      - name: Check mutable bindings
+        run: scripts/check-mut.sh
       - name: Report exceptions
         run: |
           echo "## Lint exceptions (limit 3)" >> $GITHUB_STEP_SUMMARY
