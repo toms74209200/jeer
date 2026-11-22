@@ -3,7 +3,7 @@ text = '''
 jeer reproduces the pinned oracle (Spotless 8.12.0 with google-java-format
 2.0.0 on JDK 25) byte for byte, bugs included, and rejects what it rejects.
 - Port GJF's logic with its semantics (its break levels and line-break priorities), not a lookalike tuned to the corpus
-- No branch for a specific input, file or identifier: a fix is a rule that GJF also has. When a mismatch looks like a GJF bug, reproduce it and say so in the PR
+- No branch for a specific input, file or identifier: a fix is a rule that GJF also has. When a mismatch looks like a GJF bug, reproduce it and say so in the commit message
 - Expected outputs come only from the oracle (`scripts/generate-fixture.sh`). A mismatch is fixed in jeer, never by editing an expected output
 - Adding fixtures is a task of its own (a spec change), merged before the implementation that passes them: new fixtures carry a `skip` marker, and the implementation deletes the markers it makes pass
 - Fixtures are our own minimal Java written for the construct under test, never copied from the corpus

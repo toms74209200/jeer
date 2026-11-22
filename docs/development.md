@@ -185,7 +185,7 @@ A task (a PR) is made of minimal commits: one commit, one subject, and everythin
 ```
 :<gitmoji>: <Verb> <what>
 
-<optional body: why, not what>
+<optional body: why, not what, with the evidence a review needs>
 
 <optional trailers>
 ```
@@ -193,7 +193,7 @@ A task (a PR) is made of minimal commits: one commit, one subject, and everythin
 - The subject is at most 72 characters and does not end with a period
 - The subject describes one change: outside `code spans` it contains no `and`, `,` or `&`
 - The message has no directive that skips CI (`[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`, `[actions skip]`, `skip-checks: true`)
-- A body, if any, is separated from the subject by a blank line, and explains why
+- A body, if any, is separated from the subject by a blank line, and explains why; the evidence a review needs belongs there too, such as the GJF bug a change reproduces or the mapping of a ported list (compatibility policy)
 - Emoji are written as `:code:`. Merge commits are written by GitHub from the PR title and are not checked
 
 ### 8.3 Emoji and verbs
