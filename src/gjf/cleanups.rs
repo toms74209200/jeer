@@ -6,212 +6,16 @@ use crate::lexer::{self};
 use crate::parser::Unit;
 use crate::syntax::{Element, Node, NodeKind};
 
-struct Scanner<'a> {
-    source: &'a str,
-    tokens: Vec<Token>,
-    comments: Vec<usize>,
-    deletions: Vec<(usize, usize)>,
+#[derive(Debug, Clone, Copy)]
+enum Request {
+    Semicolon(usize),
+    Range(usize, usize),
 }
 
-impl Scanner<'_> {
-    fn delete(&mut self, start: usize, end: usize) {
-        self.deletions.push((start, end));
-        self.deletions.sort_unstable();
-        let mut merged: Vec<(usize, usize)> = Vec::new();
-        for &(start, end) in &self.deletions {
-            match merged.last_mut() {
-                Some(last) if start <= last.1 => last.1 = last.1.max(end),
-                Some(_) | None => merged.push((start, end)),
-            }
-        }
-        self.deletions = merged;
-    }
-
-    fn delete_semicolon(&mut self, semicolon: usize) {
-        let bytes = self.source.as_bytes();
-        let horizontal = |b: u8| b == b' ' || b == b'\t';
-        let mut start = semicolon;
-        while start > 0 && horizontal(bytes[start - 1]) {
-            start -= 1;
-        }
-        let mut line_begin = start;
-        while line_begin > 0 && !matches!(bytes[line_begin - 1], b'\n' | b'\r') {
-            line_begin -= 1;
-        }
-        let mut end = semicolon + 1;
-        while end < bytes.len() && horizontal(bytes[end]) {
-            end += 1;
-        }
-        let nothing_before = start == line_begin
-            || self
-                .deletions
-                .iter()
-                .any(|&(low, high)| low <= line_begin && start <= high);
-        if nothing_before && end < bytes.len() {
-            match bytes[end] {
-                b'\r' => {
-                    end += 1;
-                    if bytes.get(end) == Some(&b'\n') {
-                        end += 1;
-                    }
-                }
-                b'\n' => end += 1,
-                _ => {}
-            }
-        }
-        self.delete(start, end);
-    }
-
-    fn semicolons_outside(&mut self, start: usize, end: usize, spans: &[(usize, usize)]) {
-        let semicolons: Vec<usize> = self
-            .tokens
-            .iter()
-            .filter(|token| {
-                token.kind == TokenKind::Punct(Punct::Semicolon)
-                    && (start..end).contains(&token.start)
-                    && !spans
-                        .iter()
-                        .any(|&(low, high)| (low..high).contains(&token.start))
-            })
-            .map(|token| token.start)
-            .collect();
-        for semicolon in semicolons {
-            self.delete_semicolon(semicolon);
-        }
-    }
-
-    fn body_semicolons(&mut self, body: &Node, owner: NodeKind) {
-        let Some((start, end)) = span(body) else {
-            return;
-        };
-        let mut spans: Vec<(usize, usize)> = Vec::new();
-        let mut last_constant_end = start;
-        let mut first_member_start = end;
-        for child in &body.children {
-            let Element::Node(member) = child else {
-                continue;
-            };
-            if member.kind == NodeKind::EmptyDecl {
-                continue;
-            }
-            let Some((low, high)) = span(member) else {
-                continue;
-            };
-            spans.push((low, high));
-            match member.kind == NodeKind::EnumConstant {
-                true => last_constant_end = last_constant_end.max(high),
-                false => first_member_start = first_member_start.min(low),
-            }
-        }
-        let separator = self
-            .tokens
-            .iter()
-            .find(|token| {
-                token.kind == TokenKind::Punct(Punct::Semicolon)
-                    && (last_constant_end..first_member_start).contains(&token.start)
-            })
-            .map(|token| token.start);
-        if let (true, false, Some(semicolon)) = (
-            matches!(owner, NodeKind::EnumDecl | NodeKind::EnumConstant),
-            spans.is_empty(),
-            separator,
-        ) {
-            spans.push((semicolon, semicolon + 1));
-        }
-        self.semicolons_outside(start, end, &spans);
-    }
-
-    fn visit(&mut self, node: &Node) {
-        if node.kind == NodeKind::CompilationUnit {
-            let spans: Vec<(usize, usize)> = node
-                .children
-                .iter()
-                .filter_map(|child| match child {
-                    Element::Node(child) if child.kind != NodeKind::EmptyDecl => span(child),
-                    Element::Node(_) | Element::Token(_) => None,
-                })
-                .collect();
-            self.semicolons_outside(0, self.source.len(), &spans);
-        } else if matches!(
-            node.kind,
-            NodeKind::ClassDecl
-                | NodeKind::InterfaceDecl
-                | NodeKind::EnumDecl
-                | NodeKind::RecordDecl
-                | NodeKind::AnnotationTypeDecl
-        ) {
-            let body = node.children.iter().find_map(|child| match child {
-                Element::Node(body)
-                    if matches!(body.kind, NodeKind::ClassBody | NodeKind::EnumBody) =>
-                {
-                    Some(body)
-                }
-                Element::Node(_) | Element::Token(_) => None,
-            });
-            if let Some(body) = body {
-                self.body_semicolons(body, node.kind);
-            }
-        }
-        let anonymous = matches!(node.kind, NodeKind::NewClass | NodeKind::EnumConstant);
-        for child in &node.children {
-            let Element::Node(child) = child else {
-                continue;
-            };
-            if anonymous && child.kind == NodeKind::ClassBody {
-                self.body_semicolons(child, node.kind);
-            }
-            if child.kind == NodeKind::EmptyStmt
-                && matches!(node.kind, NodeKind::Block | NodeKind::SwitchGroup)
-                && let Some((semicolon, _)) = span(child)
-            {
-                self.delete_semicolon(semicolon);
-            }
-            self.visit(child);
-        }
-        if node.kind == NodeKind::Annotation {
-            let name_end = node.children.iter().find_map(|child| match child {
-                Element::Node(name) if name.kind == NodeKind::QualifiedName => span(name),
-                Element::Node(_) | Element::Token(_) => None,
-            });
-            let arguments = node.children.iter().find_map(|child| match child {
-                Element::Node(arguments) if arguments.kind == NodeKind::AnnotationArguments => {
-                    Some(arguments)
-                }
-                Element::Node(_) | Element::Token(_) => None,
-            });
-            if let (Some((_, name_end)), Some(arguments)) = (name_end, arguments)
-                && arguments
-                    .children
-                    .iter()
-                    .all(|child| matches!(child, Element::Token(_)))
-                && let Some((_, end)) = span(arguments)
-                && !self
-                    .comments
-                    .iter()
-                    .any(|comment| (name_end..end).contains(comment))
-            {
-                self.delete(name_end, end);
-            }
-        } else if node.kind == NodeKind::Lambda {
-            let significant: Vec<Token> = node
-                .tokens()
-                .into_iter()
-                .filter(|token| matches!(token.kind.class(), TokenClass::Significant))
-                .take(3)
-                .collect();
-            if let [open, _, close] = significant.as_slice()
-                && open.kind == TokenKind::Punct(Punct::LParen)
-                && close.kind == TokenKind::Punct(Punct::RParen)
-                && !self
-                    .comments
-                    .iter()
-                    .any(|comment| (open.start..close.end).contains(comment))
-            {
-                self.delete(open.start, open.end);
-                self.delete(close.start, close.end);
-            }
-        }
-    }
+struct Context<'a> {
+    length: usize,
+    semicolons: &'a [usize],
+    comments: &'a [usize],
 }
 
 fn span(node: &Node) -> Option<(usize, usize)> {
@@ -224,44 +28,275 @@ fn span(node: &Node) -> Option<(usize, usize)> {
     Some((first.start, last.end))
 }
 
+fn semicolons_outside<'n>(
+    context: &Context,
+    (start, end): (usize, usize),
+    members: impl Iterator<Item = &'n Node>,
+    separator: Option<(usize, usize)>,
+) -> Vec<Request> {
+    let spans: Vec<(usize, usize)> = members
+        .filter(|member| member.kind != NodeKind::EmptyDecl)
+        .filter_map(span)
+        .chain(separator)
+        .collect();
+    context
+        .semicolons
+        .iter()
+        .filter(|&&semicolon| {
+            (start..end).contains(&semicolon)
+                && !spans
+                    .iter()
+                    .any(|&(low, high)| (low..high).contains(&semicolon))
+        })
+        .map(|&semicolon| Request::Semicolon(semicolon))
+        .collect()
+}
+
+fn body_semicolons(context: &Context, body: &Node, owner: &Node) -> Vec<Request> {
+    let (Some(body_span), Some((owner_start, _))) = (span(body), span(owner)) else {
+        return Vec::new();
+    };
+    let members: Vec<(NodeKind, (usize, usize))> = body
+        .children
+        .iter()
+        .filter_map(|child| match child {
+            Element::Node(member) if member.kind != NodeKind::EmptyDecl => {
+                span(member).map(|member_span| (member.kind, member_span))
+            }
+            Element::Node(_) | Element::Token(_) => None,
+        })
+        .collect();
+    let last_constant_end = members
+        .iter()
+        .filter(|(kind, _)| *kind == NodeKind::EnumConstant)
+        .map(|(_, (_, high))| *high)
+        .fold(owner_start, usize::max);
+    let first_member_start = members
+        .iter()
+        .filter(|(kind, _)| *kind != NodeKind::EnumConstant)
+        .map(|(_, (low, _))| *low)
+        .fold(body_span.1, usize::min);
+    let separator = context
+        .semicolons
+        .iter()
+        .find(|semicolon| (last_constant_end..first_member_start).contains(semicolon))
+        .filter(|_| {
+            matches!(owner.kind, NodeKind::EnumDecl | NodeKind::EnumConstant) && !members.is_empty()
+        })
+        .map(|&semicolon| (semicolon, semicolon + 1));
+    let nodes = body.children.iter().filter_map(|child| match child {
+        Element::Node(member) => Some(member),
+        Element::Token(_) => None,
+    });
+    semicolons_outside(context, body_span, nodes, separator)
+}
+
+fn requests(context: &Context, node: &Node) -> Vec<Request> {
+    let nodes: Vec<&Node> = node
+        .children
+        .iter()
+        .filter_map(|child| match child {
+            Element::Node(child) => Some(child),
+            Element::Token(_) => None,
+        })
+        .collect();
+    let body = nodes
+        .iter()
+        .copied()
+        .into_iter()
+        .find(|child| matches!(child.kind, NodeKind::ClassBody | NodeKind::EnumBody));
+    let before = match (node.kind, body) {
+        (NodeKind::CompilationUnit, _) => {
+            semicolons_outside(context, (0, context.length), nodes.iter().copied(), None)
+        }
+        (
+            NodeKind::ClassDecl
+            | NodeKind::InterfaceDecl
+            | NodeKind::EnumDecl
+            | NodeKind::RecordDecl
+            | NodeKind::AnnotationTypeDecl,
+            Some(body),
+        ) => body_semicolons(context, body, node),
+        (_, _) => Vec::new(),
+    };
+    let children = nodes.iter().copied().flat_map(|child| {
+        let anonymous = match (node.kind, child.kind) {
+            (NodeKind::NewClass | NodeKind::EnumConstant, NodeKind::ClassBody) => {
+                body_semicolons(context, child, node)
+            }
+            (_, _) => Vec::new(),
+        };
+        let empty = match (node.kind, child.kind, span(child)) {
+            (
+                NodeKind::Block | NodeKind::SwitchGroup,
+                NodeKind::EmptyStmt,
+                Some((semicolon, _)),
+            ) => {
+                vec![Request::Semicolon(semicolon)]
+            }
+            (_, _, _) => Vec::new(),
+        };
+        anonymous
+            .into_iter()
+            .chain(empty)
+            .chain(requests(context, child))
+    });
+    let commented = |start: usize, end: usize| {
+        context
+            .comments
+            .iter()
+            .any(|comment| (start..end).contains(comment))
+    };
+    let after = match node.kind {
+        NodeKind::Annotation => {
+            let name_end = nodes
+                .iter()
+                .copied()
+                .into_iter()
+                .find(|child| child.kind == NodeKind::QualifiedName)
+                .and_then(span)
+                .map(|(_, end)| end);
+            let arguments = nodes
+                .iter()
+                .copied()
+                .into_iter()
+                .find(|child| child.kind == NodeKind::AnnotationArguments)
+                .filter(|arguments| {
+                    arguments
+                        .children
+                        .iter()
+                        .all(|child| matches!(child, Element::Token(_)))
+                })
+                .and_then(span);
+            match (name_end, arguments) {
+                (Some(start), Some((_, end))) if !commented(start, end) => {
+                    vec![Request::Range(start, end)]
+                }
+                (_, _) => Vec::new(),
+            }
+        }
+        NodeKind::Lambda => {
+            let significant: Vec<Token> = node
+                .tokens()
+                .into_iter()
+                .filter(|token| matches!(token.kind.class(), TokenClass::Significant))
+                .take(3)
+                .collect();
+            match significant.as_slice() {
+                [open, _, close]
+                    if open.kind == TokenKind::Punct(Punct::LParen)
+                        && close.kind == TokenKind::Punct(Punct::RParen)
+                        && !commented(open.start, close.end) =>
+                {
+                    vec![
+                        Request::Range(open.start, open.end),
+                        Request::Range(close.start, close.end),
+                    ]
+                }
+                _ => Vec::new(),
+            }
+        }
+        _ => Vec::new(),
+    };
+    before.into_iter().chain(children).chain(after).collect()
+}
+
+fn merge(deletions: Vec<(usize, usize)>, range: (usize, usize)) -> Vec<(usize, usize)> {
+    let sorted = {
+        let mut sorted = deletions;
+        sorted.push(range);
+        sorted.sort_unstable();
+        sorted
+    };
+    sorted.into_iter().fold(
+        Vec::new(),
+        |merged: Vec<(usize, usize)>, (low, high)| match merged.split_last() {
+            Some((&(last_low, last_high), rest)) if low <= last_high => rest
+                .iter()
+                .copied()
+                .chain([(last_low, last_high.max(high))])
+                .collect(),
+            Some(_) | None => merged.into_iter().chain([(low, high)]).collect(),
+        },
+    )
+}
+
+fn semicolon_range(source: &str, deletions: &[(usize, usize)], semicolon: usize) -> (usize, usize) {
+    let bytes = source.as_bytes();
+    let horizontal = |byte: &&u8| matches!(byte, b' ' | b'\t');
+    let start = semicolon
+        - bytes[..semicolon]
+            .iter()
+            .rev()
+            .take_while(horizontal)
+            .count();
+    let line_begin = start
+        - bytes[..start]
+            .iter()
+            .rev()
+            .take_while(|byte| !matches!(byte, b'\n' | b'\r'))
+            .count();
+    let end = semicolon + 1 + bytes[semicolon + 1..].iter().take_while(horizontal).count();
+    let nothing_before = start == line_begin
+        || deletions
+            .iter()
+            .any(|&(low, high)| low <= line_begin && start <= high);
+    let end = match (nothing_before, bytes.get(end), bytes.get(end + 1)) {
+        (true, Some(b'\r'), Some(b'\n')) => end + 2,
+        (true, Some(b'\r' | b'\n'), _) => end + 1,
+        (_, _, _) => end,
+    };
+    (start, end)
+}
+
 pub fn ast_cleanups(source: &str, unit: &Unit) -> String {
     let tokens = unit.tree.tokens();
-    let comments = tokens
-        .iter()
-        .filter(|token| {
-            matches!(
-                token.kind,
-                TokenKind::LineComment | TokenKind::BlockComment | TokenKind::JavadocComment
-            )
-        })
-        .map(|token| token.start)
-        .collect();
-    let mut scanner = Scanner {
-        source,
-        tokens,
-        comments,
-        deletions: Vec::new(),
+    let positions = |kinds: &[TokenKind]| -> Vec<usize> {
+        tokens
+            .iter()
+            .filter(|token| kinds.contains(&token.kind))
+            .map(|token| token.start)
+            .collect()
     };
-    scanner.visit(&unit.tree);
-    let mut cleaned = String::with_capacity(source.len());
-    let mut cursor = 0;
-    for &(start, end) in &scanner.deletions {
-        cleaned.push_str(&source[cursor..start]);
-        let before = source[..start]
-            .chars()
-            .next_back()
-            .filter(|c| c.len_utf16() == 1);
-        let after = source[end..].chars().next().filter(|c| c.len_utf16() == 1);
-        if let (Some(before), Some(after)) = (before, after)
-            && identifier::class(before) != CharClass::Other
-            && identifier::class(after) != CharClass::Other
-        {
-            cleaned.push(' ');
-        }
-        cursor = end;
-    }
-    cleaned.push_str(&source[cursor..]);
-    cleaned
+    let semicolons = positions(&[TokenKind::Punct(Punct::Semicolon)]);
+    let comments = positions(&[
+        TokenKind::LineComment,
+        TokenKind::BlockComment,
+        TokenKind::JavadocComment,
+    ]);
+    let context = Context {
+        length: source.len(),
+        semicolons: &semicolons,
+        comments: &comments,
+    };
+    let deletions =
+        requests(&context, &unit.tree)
+            .into_iter()
+            .fold(Vec::new(), |deletions, request| {
+                let range = match request {
+                    Request::Semicolon(semicolon) => semicolon_range(source, &deletions, semicolon),
+                    Request::Range(start, end) => (start, end),
+                };
+                merge(deletions, range)
+            });
+    let identifier_part = |c: Option<char>| {
+        c.filter(|c| c.len_utf16() == 1)
+            .is_some_and(|c| identifier::class(c) != CharClass::Other)
+    };
+    let (cleaned, cursor) =
+        deletions
+            .iter()
+            .fold((String::new(), 0), |(cleaned, cursor), &(start, end)| {
+                let separator = match (
+                    identifier_part(source[..start].chars().next_back()),
+                    identifier_part(source[end..].chars().next()),
+                ) {
+                    (true, true) => " ",
+                    (_, _) => "",
+                };
+                (cleaned + &source[cursor..start] + separator, end)
+            });
+    cleaned + &source[cursor..]
 }
 
 pub fn reorder_modifiers(source: &str) -> Result<String, Unformatted> {
@@ -271,11 +306,11 @@ pub fn reorder_modifiers(source: &str) -> Result<String, Unformatted> {
     })?;
     let input = input::build(source, &lexed.tokens);
     let tokens = &input.tokens;
-    let decoded = |tok: &input::Tok| -> String {
-        let offsets = &lexed.text.offsets;
-        let from = offsets.partition_point(|&offset| offset < tok.position);
-        let to = offsets.partition_point(|&offset| offset < tok.position + tok.text.len());
-        lexed.text.chars[from..to.max(from)].iter().collect()
+    let text = |index: usize| {
+        let tok = &tokens[index].tok;
+        lexed
+            .text
+            .decoded(tok.position, tok.position + tok.text.len())
     };
     let order = [
         "public",
@@ -293,75 +328,65 @@ pub fn reorder_modifiers(source: &str) -> Result<String, Unformatted> {
         "native",
         "strictfp",
     ];
+    let rank = |name: &str| order.iter().position(|modifier| *modifier == name);
     let modifier_at = |index: usize| -> (Option<(usize, usize, usize)>, usize) {
-        let text = decoded(&tokens[index].tok);
-        if text != "non" {
-            let rank = order.iter().position(|name| *name == text);
-            return (rank.map(|rank| (rank, index, index)), index + 1);
-        }
-        match (tokens.get(index + 1), tokens.get(index + 2)) {
-            (Some(dash), Some(last)) if decoded(&dash.tok) == "-" => {
-                let rank = match decoded(&last.tok).as_str() {
-                    "sealed" => order.iter().position(|name| *name == "non-sealed"),
+        match (text(index).as_str(), index + 2 < tokens.len()) {
+            ("non", true) if text(index + 1) == "-" => {
+                let modifier = match text(index + 2).as_str() {
+                    "sealed" => rank("non-sealed").map(|rank| (rank, index, index + 2)),
                     _ => None,
                 };
-                (rank.map(|rank| (rank, index, index + 2)), index + 3)
+                (modifier, index + 3)
             }
-            (Some(_), _) => (None, index + 2),
-            (None, _) => (None, index + 1),
+            ("non", _) => (None, (index + 2).min(tokens.len())),
+            (name, _) => (rank(name).map(|rank| (rank, index, index)), index + 1),
         }
     };
-    let mut replacements: Vec<(usize, usize, String)> = Vec::new();
-    let mut index = 0;
-    while index < tokens.len() {
-        let (first, next) = modifier_at(index);
-        index = next;
-        let Some(first) = first else {
-            continue;
-        };
-        let mut run = vec![first];
-        while index < tokens.len() {
-            let (modifier, next) = modifier_at(index);
-            index = next;
-            match modifier {
-                Some(modifier) => run.push(modifier),
-                None => break,
-            }
-        }
-        if run.windows(2).all(|pair| pair[0].0 <= pair[1].0) {
-            continue;
-        }
-        let mut sorted = run.clone();
-        sorted.sort_by_key(|modifier| modifier.0);
-        let mut replacement = String::new();
-        for (position, modifier) in sorted.iter().enumerate() {
-            let (_, first_token, last_token) = run[position];
-            if position > 0 {
-                for tok in &tokens[first_token].before {
-                    replacement.push_str(&tok.text);
-                }
-            }
-            replacement.push_str(order[modifier.0]);
-            if position + 1 < sorted.len() {
-                for tok in &tokens[last_token].after {
-                    replacement.push_str(&tok.text);
-                }
-            }
-        }
-        let (_, begin, _) = run[0];
-        let (_, _, end) = run[run.len() - 1];
-        let end_tok = &tokens[end].tok;
-        replacements.push((
-            tokens[begin].tok.position,
-            end_tok.position + end_tok.text.len(),
-            replacement,
-        ));
-    }
-    let mut reordered = source.to_owned();
-    for (start, end, replacement) in replacements.into_iter().rev() {
-        reordered.replace_range(start..end, &replacement);
-    }
-    Ok(reordered)
+    let modifiers: Vec<Option<(usize, usize, usize)>> =
+        std::iter::successors(Some(modifier_at(0)), |&(_, next)| {
+            (next < tokens.len()).then(|| modifier_at(next))
+        })
+        .map(|(modifier, _)| modifier)
+        .collect();
+    let trivia =
+        |toks: &[input::Tok]| -> String { toks.iter().map(|tok| tok.text.as_str()).collect() };
+    let replacements: Vec<(usize, usize, String)> = modifiers
+        .split(Option::is_none)
+        .map(|run| run.iter().flatten().copied().collect::<Vec<_>>())
+        .filter(|run| run.windows(2).any(|pair| pair[0].0 > pair[1].0))
+        .map(|run| {
+            let sorted = {
+                let mut sorted = run.clone();
+                sorted.sort_by_key(|modifier| modifier.0);
+                sorted
+            };
+            let replacement: String = sorted
+                .iter()
+                .zip(&run)
+                .enumerate()
+                .map(|(position, (modifier, &(_, first, last)))| {
+                    let before = match position {
+                        0 => String::new(),
+                        _ => trivia(&tokens[first].before),
+                    };
+                    let after = match position + 1 == sorted.len() {
+                        true => String::new(),
+                        false => trivia(&tokens[last].after),
+                    };
+                    before + order[modifier.0] + &after
+                })
+                .collect();
+            let begin = tokens[run[0].1].tok.position;
+            let last = &tokens[run[run.len() - 1].2].tok;
+            (begin, last.position + last.text.len(), replacement)
+        })
+        .collect();
+    Ok(replacements
+        .into_iter()
+        .rev()
+        .fold(source.to_owned(), |text, (start, end, replacement)| {
+            text[..start].to_owned() + &replacement + &text[end..]
+        }))
 }
 
 #[cfg(test)]
@@ -370,17 +395,29 @@ mod tests {
     use crate::parser;
 
     #[test]
-    fn when_apply_with_each_cleanup_pass_then_returns_the_text_gjf_cleans_it_to() {
+    fn when_ast_cleanups_with_redundant_tokens_then_returns_the_text_gjf_cleans_it_to() {
         let cases = [
             ("class A {};\n;\nclass B {} ;\n", "class A {}\nclass B {}\n"),
             ("class A { int x;; }\n", "class A { int x;}\n"),
             ("enum E { X; ; }\n", "enum E { X;}\n"),
             ("enum F { ; }\n", "enum F {}\n"),
             ("enum G { ; void f() {} }\n", "enum G { ; void f() {} }\n"),
+            (
+                "enum E { X { ; void f() {}; }; }\n",
+                "enum E { X { ; void f() {}}; }\n",
+            ),
+            (
+                "enum E { X(() -> { f(); }) { ; void g() {} }; }\n",
+                "enum E { X(() -> { f(); }) {void g() {} }; }\n",
+            ),
             ("class A { void f() { ; } }\n", "class A { void f() {} }\n"),
             (
                 "class A { void f() {\n  ;\n} }\n",
                 "class A { void f() {\n} }\n",
+            ),
+            (
+                "class A { void f() {\r\n  ;\r\n} }\n",
+                "class A { void f() {\r\n} }\n",
             ),
             (
                 "class A { void f() { for (;;) ; } }\n",
@@ -390,6 +427,14 @@ mod tests {
             ("class A { @A()int x; }\n", "class A { @A int x; }\n"),
             ("@A(/* c */) class A {}\n", "@A(/* c */) class A {}\n"),
             ("@A(@B()) class A {}\n", "@A(@B) class A {}\n"),
+            (
+                "class A { @A\u{1d400}() int x; }\n",
+                "class A { @A\u{1d400} int x; }\n",
+            ),
+            (
+                "class A { @A\u{1d400}()int x; }\n",
+                "class A { @A\u{1d400}int x; }\n",
+            ),
             (
                 "class A { Object o = f((x) -> x); }\n",
                 "class A { Object o = f(x -> x); }\n",
@@ -402,6 +447,19 @@ mod tests {
                 "class A { Object o = (/* c */x) -> x; }\n",
                 "class A { Object o = (/* c */x) -> x; }\n",
             ),
+        ];
+        for (source, expected) in cases {
+            let unit = parser::parse(source).ok();
+
+            let cleaned = unit.map(|unit| ast_cleanups(source, &unit));
+
+            assert_eq!(cleaned.as_deref(), Some(expected), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn when_reorder_modifiers_with_modifier_runs_then_returns_them_in_jls_order() {
+        let cases = [
             (
                 "class A { static public final int X = 1; }\n",
                 "class A { public static final int X = 1; }\n",
@@ -411,40 +469,35 @@ mod tests {
                 "class A { public /* c */ static int y; }\n",
             ),
             (
-                "non-sealed abstract class C {}\n",
-                "abstract non-sealed class C {}\n",
-            ),
-            (
                 "class A { static publi\\u0063 int x; }\n",
                 "class A { public static int x; }\n",
             ),
             (
-                "enum E { X { ; void f() {}; }; }\n",
-                "enum E { X { ; void f() {}}; }\n",
-            ),
-            (
-                "class A { @A\u{1d400}() int x; }\n",
-                "class A { @A\u{1d400} int x; }\n",
-            ),
-            (
-                "class A { @A\u{1d400}()int x; }\n",
-                "class A { @A\u{1d400}int x; }\n",
+                "non-sealed abstract class C {}\n",
+                "abstract non-sealed class C {}\n",
             ),
             (
                 "abstract non-sealed class C {}\n",
                 "abstract non-sealed class C {}\n",
             ),
             (
+                "non-final abstract class C {}\n",
+                "non-final abstract class C {}\n",
+            ),
+            (
+                "class A { static @B public int x; }\n",
+                "class A { static @B public int x; }\n",
+            ),
+            (
                 "class A { void f() { switch (x) { default: } } }\n",
                 "class A { void f() { switch (x) { default: } } }\n",
             ),
+            ("non", "non"),
         ];
         for (source, expected) in cases {
-            let unit = parser::parse(source).ok();
+            let reordered = reorder_modifiers(source);
 
-            let cleaned = unit.map(|unit| reorder_modifiers(&ast_cleanups(source, &unit)));
-
-            assert_eq!(cleaned, Some(Ok(expected.to_owned())), "{source:?}");
+            assert_eq!(reordered, Ok(expected.to_owned()), "{source:?}");
         }
     }
 }

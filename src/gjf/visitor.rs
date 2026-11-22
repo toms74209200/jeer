@@ -69,7 +69,7 @@ impl<'a> Visitor<'a> {
         trailing: Option<Indent>,
     ) -> Result<(), Unformatted> {
         let text = &self.source[token.start..token.end];
-        let decoded = self.decoded_text(token);
+        let decoded = self.decoded.decoded(token.start, token.end);
         match token.kind {
             TokenKind::Punct(_) => {
                 for c in decoded.chars() {
@@ -106,13 +106,6 @@ impl<'a> Visitor<'a> {
             | TokenKind::JavadocComment
             | TokenKind::Eof => Err(Unformatted::Deferred),
         }
-    }
-
-    fn decoded_text(&self, token: &Token) -> String {
-        let offsets = &self.decoded.offsets;
-        let from = offsets.partition_point(|&offset| offset < token.start);
-        let to = offsets.partition_point(|&offset| offset < token.end);
-        self.decoded.chars[from..to.max(from)].iter().collect()
     }
 
     fn span(&self, node: &Node) -> Result<(usize, usize), Unformatted> {

@@ -619,19 +619,7 @@ impl<'a> Visitor<'a> {
         self.builder.add(SPACE)?;
         self.token(open, ZERO, Some(PLUS_TWO))?;
         match (constants.is_empty() && members.is_empty(), semicolon) {
-            (true, Some(semicolon)) => {
-                self.builder.add(OPEN_PLUS_TWO)?;
-                self.builder.add(FORCED)?;
-                self.token(semicolon, ZERO, None)?;
-                self.builder.add(FORCED)?;
-                self.builder.add(CLOSE)?;
-                self.builder.add(OPEN_ZERO)?;
-                self.builder.add(FORCED)?;
-                self.builder.add(Op::BlankLine(BlankLine::No))?;
-                self.token(close, PLUS_TWO, None)?;
-                self.builder.add(CLOSE)
-            }
-            (true, None) => {
+            (true, Some(_) | None) => {
                 self.builder.add(OPEN_ZERO)?;
                 self.builder.add(Op::BlankLine(BlankLine::No))?;
                 self.token(close, ZERO, None)?;
