@@ -1,2 +1,2 @@
-command = "scripts/check-diff-coverage.sh"
+command = "scripts/brief.sh scripts/check-diff-coverage.sh"
 size = "small"

@@ -1,2 +1,2 @@
-command = "scripts/check-one-context.sh"
+command = "scripts/brief.sh scripts/check-one-context.sh"
 size = "small"

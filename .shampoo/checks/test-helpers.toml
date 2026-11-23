@@ -1,2 +1,2 @@
-command = "scripts/check-sg.sh test-helpers"
+command = "scripts/brief.sh scripts/check-sg.sh test-helpers"
 size = "small"

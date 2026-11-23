@@ -1,2 +1,2 @@
-command = "scripts/check-roundtrip.sh dev"
+command = "scripts/brief.sh scripts/check-roundtrip.sh dev"
 size = "medium"

@@ -1,2 +1,2 @@
-command = "scripts/test-judge-side-effects.sh"
+command = "scripts/brief.sh scripts/test-judge-side-effects.sh"
 size = "small"

@@ -1,2 +1,2 @@
-command = "scripts/check-fixture-commit.sh --rev <commit>"
+command = "scripts/brief.sh scripts/check-fixture-commit.sh --rev <commit>"
 size = "small"

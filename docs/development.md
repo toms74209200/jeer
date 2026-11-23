@@ -158,7 +158,7 @@ Once adopted (§4.3), the loop is: measure → hypothesize → change → re-mea
 The workflow above runs on [shampoo](https://github.com/toms74209200/shampoo): `.shampoo/` holds the rules, checks and policies, hooks in `.claude/settings.json` call `shampoo guard` and `shampoo policies`, and `shampoo next` drives tasks from `tasks/` to merged PRs. shampoo is the `factory` of §2.3. This section records the conventions its checks enforce, so they live in the repository and in executable checks rather than in agent memory.
 
 ### 8.1 Checks
-Every check is a script under `scripts/`, called directly (not through `make`, which exits 2 on any recipe failure). Each exits 0 on pass, 1 on a task failure (the work is wrong) and anything else on a workflow failure (the check misbehaved). Tools are pinned in the scripts that run them: the Rust toolchain in `rust-toolchain.toml`, ast-grep in `scripts/ast-grep.sh`, cargo-llvm-cov in `scripts/cargo-llvm-cov.sh`, Gradle, Spotless and GJF in `oracle/`. Local runs and CI judge the same way.
+Every check is a script under `scripts/`; shampoo calls it through `scripts/brief.sh`, which keeps the first 30 lines of its output so a failing check does not flood the agent's context, while CI calls it directly and keeps the full log. Each is called directly (not through `make`, which exits 2 on any recipe failure). Each exits 0 on pass, 1 on a task failure (the work is wrong) and anything else on a workflow failure (the check misbehaved). Tools are pinned in the scripts that run them: the Rust toolchain in `rust-toolchain.toml`, ast-grep in `scripts/ast-grep.sh`, cargo-llvm-cov in `scripts/cargo-llvm-cov.sh`, Gradle, Spotless and GJF in `oracle/`. Local runs and CI judge the same way.
 
 | Script | Size | Checks |
 |---|---|---|

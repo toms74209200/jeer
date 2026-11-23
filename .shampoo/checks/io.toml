@@ -1,2 +1,2 @@
-command = "scripts/test-io.sh"
+command = "scripts/brief.sh scripts/test-io.sh"
 size = "medium"

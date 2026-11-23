@@ -1,2 +1,2 @@
-command = "scripts/check-commit.sh --rev <commit>"
+command = "scripts/brief.sh scripts/check-commit.sh --rev <commit>"
 size = "small"
