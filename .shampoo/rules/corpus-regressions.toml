@@ -1,5 +1,5 @@
 rule = "No file of the dev corpus that matched the oracle at the merge-base stops matching (docs/development.md §3: diff against pinned Spotless, regression corpus, idempotency)."
 check = "corpus"
 transitions = ["task"]
-paths = ["**.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "corpus/**", "oracle/**", "scripts/corpus-diff.sh", "scripts/oracle.sh", "scripts/fetch-corpus.sh"]
+paths = ["scripts/brief.sh", "**.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "corpus/**", "oracle/**", "scripts/corpus-diff.sh", "scripts/oracle.sh", "scripts/fetch-corpus.sh"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

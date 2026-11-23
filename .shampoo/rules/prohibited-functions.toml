@@ -6,5 +6,5 @@ A function whose body is a single expression or statement is prohibited, unless 
 - A conversion whose result type carries nothing new'''
 check = "functions"
 transitions = ["edit", "task", "pr"]
-paths = ["**.rs", "sg/rules/functions.yml", "scripts/check-sg.sh", "scripts/ast-grep.sh"]
+paths = ["scripts/brief.sh", "**.rs", "sg/rules/functions.yml", "scripts/check-sg.sh", "scripts/ast-grep.sh"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

@@ -1,5 +1,5 @@
 rule = "Every crate the code depends on is in scripts/allowed-crates.txt, with its reason. Production dependencies are only crates as trusted as serde or tokio; changing the allowlist goes through human review (shampoo ask)."
 check = "dependencies"
 transitions = ["edit", "task", "pr"]
-paths = ["Cargo.toml", "Cargo.lock", "scripts/check-dependencies.sh", "scripts/allowed-crates.txt"]
+paths = ["scripts/brief.sh", "Cargo.toml", "Cargo.lock", "scripts/check-dependencies.sh", "scripts/allowed-crates.txt"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

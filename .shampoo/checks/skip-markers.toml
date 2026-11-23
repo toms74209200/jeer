@@ -1,2 +1,2 @@
-command = "scripts/check-skip-markers.sh"
+command = "scripts/brief.sh scripts/check-skip-markers.sh"
 size = "medium"

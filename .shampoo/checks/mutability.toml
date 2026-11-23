@@ -1,2 +1,2 @@
-command = "scripts/check-mut.sh"
+command = "scripts/brief.sh scripts/check-mut.sh"
 size = "small"

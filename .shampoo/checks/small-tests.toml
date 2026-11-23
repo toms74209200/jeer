@@ -1,2 +1,2 @@
-command = "scripts/test-small.sh"
+command = "scripts/brief.sh scripts/test-small.sh"
 size = "small"

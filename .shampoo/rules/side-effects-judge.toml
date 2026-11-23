@@ -1,5 +1,5 @@
 rule = "The side-effect judge flags and accepts the traces in scripts/testdata/side-effects as they are labelled."
 check = "side-effects-judge"
 transitions = ["edit", "task", "pr"]
-paths = ["scripts/judge-side-effects.sh", "scripts/test-judge-side-effects.sh", "scripts/testdata/side-effects/**"]
+paths = ["scripts/brief.sh", "scripts/judge-side-effects.sh", "scripts/test-judge-side-effects.sh", "scripts/testdata/side-effects/**"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

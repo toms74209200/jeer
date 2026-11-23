@@ -1,5 +1,5 @@
 rule = "No production function holds more than two mutable bindings (`let mut`, `mut` parameters and patterns); a function over the limit is listed in scripts/mut-baseline.txt with its count, which only goes down (immutability policy, docs/development.md §8.1)."
 check = "mutability"
 transitions = ["edit", "task", "pr"]
-paths = ["**.rs", "sg/count/*.yml", "scripts/check-mut.sh", "scripts/mut-baseline.txt", "scripts/ast-grep.sh"]
+paths = ["scripts/brief.sh", "**.rs", "sg/count/*.yml", "scripts/check-mut.sh", "scripts/mut-baseline.txt", "scripts/ast-grep.sh"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

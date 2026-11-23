@@ -1,2 +1,2 @@
-command = "scripts/check-sg.sh functions"
+command = "scripts/brief.sh scripts/check-sg.sh functions"
 size = "small"

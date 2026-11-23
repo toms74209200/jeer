@@ -1,5 +1,5 @@
 rule = "Test helpers are prohibited. A `#[cfg(test)] mod tests` declares only `#[test]` functions."
 check = "test-helpers"
 transitions = ["edit", "task", "pr"]
-paths = ["**.rs", "sg/rules/test-helpers.yml", "scripts/check-sg.sh", "scripts/ast-grep.sh"]
+paths = ["scripts/brief.sh", "**.rs", "sg/rules/test-helpers.yml", "scripts/check-sg.sh", "scripts/ast-grep.sh"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

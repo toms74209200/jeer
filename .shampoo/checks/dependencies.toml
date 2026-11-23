@@ -1,2 +1,2 @@
-command = "scripts/check-dependencies.sh"
+command = "scripts/brief.sh scripts/check-dependencies.sh"
 size = "small"

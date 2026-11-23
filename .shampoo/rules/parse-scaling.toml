@@ -1,5 +1,5 @@
 rule = "Parsing time is near-linear in input size: on generated deep nesting, long chains, long binary expressions, nested blocks, lambdas and generics, 4x the input takes at most 8x the time (design doc §5)."
 check = "parse-scaling"
 transitions = ["task"]
-paths = ["src/parser.rs", "src/parser/**", "src/lexer.rs", "src/lexer/**", "src/syntax.rs", "scripts/check-parse-scaling.sh"]
+paths = ["scripts/brief.sh", "src/parser.rs", "src/parser/**", "src/lexer.rs", "src/lexer/**", "src/syntax.rs", "scripts/check-parse-scaling.sh"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

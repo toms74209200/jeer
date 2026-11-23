@@ -1,2 +1,2 @@
-command = "scripts/check-branching-results.sh"
+command = "scripts/brief.sh scripts/check-branching-results.sh"
 size = "small"

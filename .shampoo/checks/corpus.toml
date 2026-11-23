@@ -1,2 +1,2 @@
-command = "scripts/corpus-diff.sh dev"
+command = "scripts/brief.sh scripts/corpus-diff.sh dev"
 size = "medium"

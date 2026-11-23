@@ -1,2 +1,2 @@
-command = "scripts/lint.sh"
+command = "scripts/brief.sh scripts/lint.sh"
 size = "small"

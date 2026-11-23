@@ -1,6 +1,6 @@
 rule = "The share of pure code, the small-test coverage of the whole code base, does not drop more than one standard deviation below the base's; a drop charges this rule's budget (shampoo design doc §3)."
 check = "small-tests"
 transitions = ["pr"]
-paths = ["**.rs", "Cargo.toml", "Cargo.lock", "scripts/judge-coverage.sh", "scripts/coverage-baseline.txt"]
+paths = ["scripts/brief.sh", "**.rs", "Cargo.toml", "Cargo.lock", "scripts/judge-coverage.sh", "scripts/coverage-baseline.txt"]
 judge = { command = "scripts/judge-coverage.sh <base> out/small.lcov", exit = { 3 = "budget", other = "workflow-failure" } }
 budget = { violations = 2, runs = 20 }

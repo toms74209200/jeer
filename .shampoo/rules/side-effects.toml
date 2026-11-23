@@ -1,5 +1,5 @@
 rule = "Small tests have no side effects: no network, no files outside a temp dir and the build's target dir (beyond the loader, terminfo, and /proc/self, cgroup or overcommit reads of the runtime), no other processes, judged from strace traces of the test binaries."
 check = "small-tests"
 transitions = ["edit", "task", "pr"]
-paths = ["**.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "scripts/test-small.sh", "scripts/trace-exec.sh", "scripts/judge-side-effects.sh"]
+paths = ["scripts/brief.sh", "**.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "scripts/test-small.sh", "scripts/trace-exec.sh", "scripts/judge-side-effects.sh"]
 judge = { command = "scripts/judge-side-effects.sh out/traces", exit = { 1 = "task-failure", other = "workflow-failure" } }

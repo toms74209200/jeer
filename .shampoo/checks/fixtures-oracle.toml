@@ -1,2 +1,2 @@
-command = "scripts/check-fixtures-oracle.sh"
+command = "scripts/brief.sh scripts/check-fixtures-oracle.sh"
 size = "medium"

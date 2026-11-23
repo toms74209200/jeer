@@ -1,2 +1,2 @@
-command = "scripts/token-usage.sh"
+command = "scripts/brief.sh scripts/token-usage.sh"
 size = "small"

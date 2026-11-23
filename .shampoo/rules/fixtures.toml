@@ -1,5 +1,5 @@
 rule = "Every fixture in tests/fixtures/<profile>/<name>/ without a skip marker passes: jeer gives expected.java and is idempotent on it, or rejects the input as expected.error says (docs/development.md §8.4)."
 check = "fixtures"
 transitions = ["task", "pr"]
-paths = ["**.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tests/fixtures/**", "scripts/test-fixtures.sh"]
+paths = ["scripts/brief.sh", "**.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tests/fixtures/**", "scripts/test-fixtures.sh"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

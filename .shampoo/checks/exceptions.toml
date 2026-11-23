@@ -1,2 +1,2 @@
-command = "scripts/check-sg.sh exceptions"
+command = "scripts/brief.sh scripts/check-sg.sh exceptions"
 size = "small"
