@@ -1,5 +1,5 @@
 rule = "Every small test passes. Small tests are the unit tests in src/: no network, no files outside a temp dir, no external processes."
 check = "small-tests"
 transitions = ["edit", "task", "pr"]
-paths = ["**.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "scripts/test-small.sh", "scripts/cargo-llvm-cov.sh"]
+paths = ["scripts/brief.sh", "**.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "scripts/test-small.sh", "scripts/cargo-llvm-cov.sh"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

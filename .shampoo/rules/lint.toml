@@ -1,6 +1,6 @@
 rule = "The code passes rustfmt and clippy with the lints in Cargo.toml, warnings denied (docs/development.md §8.1)."
 check = "lint"
 transitions = ["edit", "task", "pr"]
-paths = ["**.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "scripts/lint.sh"]
+paths = ["scripts/brief.sh", "**.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "scripts/lint.sh"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }
 exceptions = { file = "out/exceptions/lint.txt", limit = 3 }

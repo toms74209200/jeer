@@ -1,5 +1,5 @@
 rule = "Every dev corpus file lexes and parses, and its syntax tree reproduces it byte for byte (`--profile cst-roundtrip`)."
 check = "roundtrip"
 transitions = ["task"]
-paths = ["**.rs", "Cargo.toml", "Cargo.lock", "corpus/**", "scripts/check-roundtrip.sh", "scripts/fetch-corpus.sh"]
+paths = ["scripts/brief.sh", "**.rs", "Cargo.toml", "Cargo.lock", "corpus/**", "scripts/check-roundtrip.sh", "scripts/fetch-corpus.sh"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

@@ -1,5 +1,5 @@
 rule = "The only exception is `#[expect(<lint>, reason = \"<reason>\")]`. `allow`, `rustfmt::skip`, `cfg_attr` and crate-level exceptions are prohibited; lint levels live in Cargo.toml."
 check = "exceptions"
 transitions = ["edit", "task", "pr"]
-paths = ["**.rs", "sg/rules/exceptions.yml", "scripts/check-sg.sh", "scripts/ast-grep.sh"]
+paths = ["scripts/brief.sh", "**.rs", "sg/rules/exceptions.yml", "scripts/check-sg.sh", "scripts/ast-grep.sh"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

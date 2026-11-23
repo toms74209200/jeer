@@ -1,5 +1,5 @@
 rule = "Comments are prohibited in all Rust code, test code and doc comments included. What a comment would say goes into names, types or docs/."
 check = "comments"
 transitions = ["edit", "task", "pr"]
-paths = ["**.rs", "sg/rules/comments.yml", "scripts/check-sg.sh", "scripts/ast-grep.sh"]
+paths = ["scripts/brief.sh", "**.rs", "sg/rules/comments.yml", "scripts/check-sg.sh", "scripts/ast-grep.sh"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

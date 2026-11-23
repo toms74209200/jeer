@@ -1,5 +1,5 @@
 rule = "Every expected output in tests/fixtures is the pinned oracle's output for its input, never written by hand."
 check = "fixtures-oracle"
 transitions = ["task", "pr"]
-paths = ["tests/fixtures/**", "oracle/**", "scripts/oracle.sh", "scripts/check-fixtures-oracle.sh"]
+paths = ["scripts/brief.sh", "tests/fixtures/**", "oracle/**", "scripts/oracle.sh", "scripts/check-fixtures-oracle.sh"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

@@ -9,5 +9,5 @@ status=$?
 limit=30
 lines=$(wc -l <"$log")
 head -n "$limit" "$log"
-[ "$lines" -gt "$limit" ] && echo "... $((lines - limit)) more lines; run $1 for all of them"
+[ "$lines" -gt "$limit" ] && echo "... $((lines - limit)) more lines; run $* for all of them"
 exit $status
