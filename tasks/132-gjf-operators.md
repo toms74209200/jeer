@@ -5,4 +5,4 @@ Bounded context: `gjf` (`src/gjf/`).
 `visitTypeCast`, `visitInstanceOf`, `visitConditionalExpression`, and the remaining dotted-chain cases.
 
 ## Done when
-- `expr-casts`, `expr-instanceof`, `expr-ternary` and `expr-method-chain` pass with their `skip` markers deleted
+- `expr-casts`, `expr-instanceof-type`, `expr-ternary` and `expr-method-chain` pass with their `skip` markers deleted
