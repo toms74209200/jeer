@@ -255,6 +255,8 @@ impl<'a> Visitor<'a> {
             NodeKind::DoStmt => self.do_statement(node),
             NodeKind::TryStmt => self.try_statement(node),
             NodeKind::Lambda => self.lambda(node),
+            NodeKind::NewClass => self.new_class(node),
+            NodeKind::NewArray => self.new_array(node),
             NodeKind::MethodReference => self.method_reference(node),
             NodeKind::SwitchStmt => self.switch_statement(node),
             NodeKind::AssertStmt => self.assert_statement(node),
@@ -425,8 +427,6 @@ impl<'a> Visitor<'a> {
             | NodeKind::Guard
             | NodeKind::YieldStmt
             | NodeKind::Arguments
-            | NodeKind::NewClass
-            | NodeKind::NewArray
             | NodeKind::InstanceOf
             | NodeKind::Conditional
             | NodeKind::LambdaParameters

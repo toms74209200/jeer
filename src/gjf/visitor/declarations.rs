@@ -435,7 +435,7 @@ impl<'a> Visitor<'a> {
         self.class_body(body)
     }
 
-    fn class_body(&mut self, body: &'a Node) -> Result<(), Unformatted> {
+    pub(super) fn class_body(&mut self, body: &'a Node) -> Result<(), Unformatted> {
         let [Element::Token(open), members @ .., Element::Token(close)] = body.children.as_slice()
         else {
             return Err(Unformatted::Deferred);

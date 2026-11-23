@@ -404,6 +404,22 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/expr-lambda-params/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/expr-new-array/input.java"),
+                include_str!("../tests/fixtures/gjf/expr-new-array/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/stmt-switch-arrow/input.java"),
+                include_str!("../tests/fixtures/gjf/stmt-switch-arrow/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/stmt-assert-throw/input.java"),
+                include_str!("../tests/fixtures/gjf/stmt-assert-throw/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/expr-new-class/input.java"),
+                include_str!("../tests/fixtures/gjf/expr-new-class/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
@@ -561,7 +577,6 @@ mod tests {
             "/// doc\nclass A {}\n",
             "record R(int x) {}\n",
             "class A { String s = \"\"\"\n  x\"\"\"; }\n",
-            "class A { Object o = new Object(); }\n",
             "class A { void f(A this) {} }\n",
             "class A { int @B [] x; }\n",
             "class A { @B int f() { return 0; } <T> @B T g() { return null; } }\n",
