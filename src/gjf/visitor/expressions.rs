@@ -1259,6 +1259,83 @@ impl<'a> Visitor<'a> {
         }
     }
 
+    pub(super) fn cast(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [Element::Token(open), rest @ ..] = node.children.as_slice() else {
+            return Err(Unformatted::Deferred);
+        };
+        let [types @ .., Element::Token(close), Element::Node(operand)] = rest else {
+            return Err(Unformatted::Deferred);
+        };
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        self.token(open, ZERO, None)?;
+        match types {
+            [Element::Node(only)] => self.scan(only)?,
+            bounds => {
+                self.builder.add(OPEN_PLUS_FOUR)?;
+                for bound in bounds {
+                    match bound {
+                        Element::Token(amp) => {
+                            self.builder.add(FILL_SPACE)?;
+                            self.token(amp, ZERO, None)?;
+                            self.builder.add(SPACE)?;
+                        }
+                        Element::Node(ty) => self.scan(ty)?,
+                    }
+                }
+                self.builder.add(CLOSE)?;
+            }
+        }
+        self.token(close, ZERO, None)?;
+        self.builder.add(SPACE_BREAK)?;
+        self.scan(operand)?;
+        self.builder.add(CLOSE)
+    }
+
+    pub(super) fn instance_of(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let (expression, keyword, target) = match node.children.as_slice() {
+            [
+                Element::Node(expression),
+                Element::Token(keyword),
+                Element::Node(modifiers),
+                Element::Node(ty),
+            ] if modifiers.children.is_empty() => (expression, keyword, ty),
+            _ => return Err(Unformatted::Deferred),
+        };
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        self.scan(expression)?;
+        self.builder.add(SPACE_BREAK)?;
+        self.builder.add(OPEN_ZERO)?;
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE_BREAK)?;
+        self.scan(target)?;
+        self.builder.add(CLOSE)?;
+        self.builder.add(CLOSE)
+    }
+
+    pub(super) fn conditional(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [
+            Element::Node(condition),
+            Element::Token(question),
+            Element::Node(then),
+            Element::Token(colon),
+            Element::Node(otherwise),
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        self.scan(condition)?;
+        self.builder.add(SPACE_BREAK)?;
+        self.token(question, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        self.scan(then)?;
+        self.builder.add(SPACE_BREAK)?;
+        self.token(colon, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        self.scan(otherwise)?;
+        self.builder.add(CLOSE)
+    }
+
     pub(super) fn lambda(&mut self, node: &'a Node) -> Result<(), Unformatted> {
         let [
             Element::Node(parameters),

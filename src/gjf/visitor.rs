@@ -255,6 +255,9 @@ impl<'a> Visitor<'a> {
             NodeKind::DoStmt => self.do_statement(node),
             NodeKind::TryStmt => self.try_statement(node),
             NodeKind::Lambda => self.lambda(node),
+            NodeKind::Cast => self.cast(node),
+            NodeKind::InstanceOf => self.instance_of(node),
+            NodeKind::Conditional => self.conditional(node),
             NodeKind::NewClass => self.new_class(node),
             NodeKind::NewArray => self.new_array(node),
             NodeKind::MethodReference => self.method_reference(node),
@@ -427,10 +430,7 @@ impl<'a> Visitor<'a> {
             | NodeKind::Guard
             | NodeKind::YieldStmt
             | NodeKind::Arguments
-            | NodeKind::InstanceOf
-            | NodeKind::Conditional
             | NodeKind::LambdaParameters
-            | NodeKind::Cast
             | NodeKind::SwitchExpr
             | NodeKind::TypePattern
             | NodeKind::RecordPattern
