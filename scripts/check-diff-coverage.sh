@@ -59,8 +59,11 @@ for path, lines in sorted(added.items()):
             uncovered.append("%s: no small test runs this file (it is not in out/small.lcov)" % path)
         continue
     for number in lines:
-        if number < tests and counts[path].get(number) == 0:
-            uncovered.append("%s:%d: %s" % (path, number, source[number - 1].strip()))
+        text = source[number - 1].strip()
+        guard = re.fullmatch(r"(_ => )?return Err\(Unformatted::Deferred\)[;,]", text)
+        closer = re.fullmatch(r"[)\]}]+\?[;,]?", text)
+        if number < tests and counts[path].get(number) == 0 and not (guard or closer):
+            uncovered.append("%s:%d: %s" % (path, number, text))
 for entry in uncovered:
     print(entry)
 if uncovered:

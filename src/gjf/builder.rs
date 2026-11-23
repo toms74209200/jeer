@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::doc::{Break, BreakMode, BreakTag, Doc, Group, HeaderMark, Indent};
+use super::doc::{Break, BreakMode, BreakTag, Choice, Doc, Group, HeaderMark, HugPoint, Indent};
 use super::input::{CommentKind, Input, Tok, TokKind, Token};
 use super::output::BlankLine;
 
@@ -30,6 +30,23 @@ pub enum Op<'s> {
     BlankLine(BlankLine),
     Sync(usize),
     Header(HeaderMark),
+    OpenHuggable {
+        plus_indent: Indent,
+        hugged_plus_indent: Indent,
+        point: HugPoint,
+    },
+    OpenHuggedArguments,
+    HugPoint(HugPoint),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Role {
+    Plain,
+    Huggable {
+        hugged_plus_indent: Indent,
+        point: HugPoint,
+    },
+    Arguments,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +65,8 @@ pub enum Unformatted {
 
 #[derive(Debug, Clone)]
 enum Event<'a> {
-    Open(Indent),
+    Open(Indent, Role),
+    HugPoint(HugPoint),
     Close,
     Break(Break),
     Token {
@@ -70,6 +88,7 @@ enum Item {
 
 struct Level {
     indent: Indent,
+    role: Role,
     items: Vec<Item>,
 }
 
@@ -78,6 +97,7 @@ pub struct Builder<'a> {
     events: Vec<Event<'a>>,
     pub(super) next: usize,
     tags: usize,
+    points: usize,
     blank_lines: HashMap<usize, BlankLine>,
     input_position: usize,
 }
@@ -89,6 +109,7 @@ impl<'a> From<&'a Input> for Builder<'a> {
             events: Vec::new(),
             next: 0,
             tags: 0,
+            points: 0,
             blank_lines: HashMap::new(),
             input_position: 0,
         }
@@ -96,6 +117,11 @@ impl<'a> From<&'a Input> for Builder<'a> {
 }
 
 impl<'a> Builder<'a> {
+    pub fn hug_point(&mut self) -> HugPoint {
+        self.points += 1;
+        HugPoint(self.points)
+    }
+
     pub fn tag(&mut self) -> BreakTag {
         let tag = BreakTag(self.tags);
         self.tags += 1;
@@ -104,7 +130,20 @@ impl<'a> Builder<'a> {
 
     pub fn add(&mut self, op: Op) -> Result<(), Unformatted> {
         match op {
-            Op::Open(indent) => self.events.push(Event::Open(indent)),
+            Op::Open(indent) => self.events.push(Event::Open(indent, Role::Plain)),
+            Op::OpenHuggable {
+                plus_indent,
+                hugged_plus_indent,
+                point,
+            } => self.events.push(Event::Open(
+                plus_indent,
+                Role::Huggable {
+                    hugged_plus_indent,
+                    point,
+                },
+            )),
+            Op::OpenHuggedArguments => self.events.push(Event::Open(ZERO_INDENT, Role::Arguments)),
+            Op::HugPoint(point) => self.events.push(Event::HugPoint(point)),
             Op::Close => self.events.push(Event::Close),
             Op::Break {
                 mode,
@@ -205,7 +244,7 @@ impl<'a> Builder<'a> {
                 continue;
             };
             let mut first = i;
-            while first > 0 && matches!(events[first - 1], Event::Open(_)) {
+            while first > 0 && matches!(events[first - 1], Event::Open(..)) {
                 first -= 1;
             }
             let mut last = i;
@@ -334,7 +373,8 @@ impl<'a> Builder<'a> {
                 Event::Break(separator) => {
                     separator.plus_indent.eval(&[]) == 0 && separator.flat == " "
                 }
-                Event::Open(_)
+                Event::Open(..)
+                | Event::HugPoint(_)
                 | Event::Close
                 | Event::Token { .. }
                 | Event::Tok(_)
@@ -346,7 +386,7 @@ impl<'a> Builder<'a> {
             }
             spliced.push(event.clone());
             match event {
-                Event::Open(_) | Event::Fence | Event::Header(_) => {}
+                Event::Open(..) | Event::HugPoint(_) | Event::Fence | Event::Header(_) => {}
                 Event::Close
                 | Event::Break(_)
                 | Event::Token { .. }
@@ -361,15 +401,17 @@ impl<'a> Builder<'a> {
         };
         let mut levels = vec![Level {
             indent: Indent::Const(0),
+            role: Role::Plain,
             items: Vec::new(),
         }];
         let mut stack = vec![0];
         let mut append = 0;
         for event in spliced {
             match event {
-                Event::Open(indent) => {
+                Event::Open(indent, role) => {
                     levels.push(Level {
                         indent,
+                        role,
                         items: Vec::new(),
                     });
                     stack.push(levels.len() - 1);
@@ -396,6 +438,7 @@ impl<'a> Builder<'a> {
                         .push(Item::Doc(Doc::comment(&tok.text, range)));
                 }
                 Event::Space => levels[append].items.push(Item::Doc(Doc::Space)),
+                Event::HugPoint(point) => levels[append].items.push(Item::Doc(Doc::Marker(point))),
                 Event::Fence => {}
                 Event::Header(mark) => {
                     let innermost = *stack.last().ok_or(unbalanced.clone())?;
@@ -409,21 +452,91 @@ impl<'a> Builder<'a> {
                 message: format!("saw {} unclosed ops", stack.len() - 1),
             });
         }
-        let mut docs: Vec<Option<Doc>> = vec![None; levels.len()];
+        let mut built: Vec<Option<Built>> = vec![None; levels.len()];
         for (index, level) in levels.into_iter().enumerate().rev() {
             let mut children = Vec::new();
             for item in level.items {
                 match item {
-                    Item::Doc(doc) => children.push(doc),
+                    Item::Doc(doc) => children.push(Built::Doc(doc)),
                     Item::Level(child) => {
-                        children.push(docs[child].take().ok_or(unbalanced.clone())?)
+                        children.push(built[child].take().ok_or(unbalanced.clone())?)
                     }
                 }
             }
-            docs[index] = Some(Doc::Group(Group::new(level.indent, children)));
+            built[index] = Some(match level.role {
+                Role::Plain => Built::Doc(Doc::Group(Group::new(
+                    level.indent,
+                    children.into_iter().map(Built::into_doc).collect(),
+                ))),
+                Role::Arguments => Built::Arguments(
+                    level.indent,
+                    children.into_iter().map(Built::into_doc).collect(),
+                ),
+                Role::Huggable {
+                    hugged_plus_indent,
+                    point,
+                } => Built::Doc(huggable(level.indent, hugged_plus_indent, point, children)),
+            });
         }
-        let root = docs[0].take().ok_or(unbalanced)?;
+        let root = built[0].take().map(Built::into_doc).ok_or(unbalanced)?;
         Ok((root, blank_lines))
+    }
+}
+
+const ZERO_INDENT: Indent = Indent::Const(0);
+
+#[derive(Debug, Clone)]
+enum Built {
+    Doc(Doc),
+    Arguments(Indent, Vec<Doc>),
+}
+
+impl Built {
+    fn into_doc(self) -> Doc {
+        match self {
+            Built::Doc(doc) => doc,
+            Built::Arguments(indent, docs) => Doc::Group(Group::new(indent, docs)),
+        }
+    }
+}
+
+fn huggable(indent: Indent, hugged_plus_indent: Indent, point: HugPoint, items: Vec<Built>) -> Doc {
+    let (fallback, flattened): (Vec<Doc>, Vec<Vec<Doc>>) = items
+        .into_iter()
+        .map(|item| match item {
+            Built::Arguments(arguments_indent, docs) => {
+                (Doc::Group(Group::new(arguments_indent, docs.clone())), docs)
+            }
+            Built::Doc(doc) => (doc.clone(), vec![doc]),
+        })
+        .unzip();
+    let preferred: Vec<Doc> = flattened.into_iter().flatten().collect();
+    let can_hug = preferred.iter().all(|doc| {
+        !matches!(
+            doc,
+            Doc::Break(Break {
+                mode: BreakMode::Forced,
+                ..
+            })
+        )
+    });
+    let preferred: Vec<Doc> = preferred
+        .into_iter()
+        .map(|doc| match doc {
+            Doc::Break(separator) => Doc::Text(separator.flat, None),
+            other => other,
+        })
+        .collect();
+    let fallback = Group::new(indent, fallback);
+    let preferred = Group::new(hugged_plus_indent, preferred);
+    match can_hug.then(|| preferred.width_before(point)).flatten() {
+        Some(prefix_width) => Doc::Choice(Box::new(Choice {
+            preferred,
+            prefix_width,
+            fallback,
+            fallback_if_flat_on_next_line: true,
+        })),
+        None => Doc::Group(fallback),
     }
 }
 
@@ -449,7 +562,18 @@ mod tests {
             plus_indent: Indent::Const(0),
             tag: None,
         };
-        let cases: [(&str, Vec<Op>, &str); 8] = [
+        let cases: [(&str, Vec<Op>, &str); 9] = [
+            (
+                "a b",
+                vec![
+                    Op::OpenHuggedArguments,
+                    token("a"),
+                    Op::Space,
+                    token("b"),
+                    Op::Close,
+                ],
+                "a b\n",
+            ),
             (
                 "a b",
                 vec![token("a"), forced.clone(), Op::Space, token("b")],

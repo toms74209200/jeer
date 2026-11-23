@@ -13,6 +13,9 @@ pub enum BreakMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BreakTag(pub usize);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HugPoint(pub usize);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Indent {
     Const(i32),
@@ -77,6 +80,7 @@ pub enum Doc {
     Break(Break),
     Group(Group),
     Choice(Box<Choice>),
+    Marker(HugPoint),
 }
 
 pub trait Comments {
@@ -156,6 +160,17 @@ impl Break {
 }
 
 impl Group {
+    pub fn width_before(&self, marker: HugPoint) -> Option<usize> {
+        let found = self.docs.iter().try_fold(0, |width, doc| {
+            match (doc.width_before(marker), width + doc.width()) {
+                (Some(before), _) => Err(Some((width + before).min(MAX_LINE_WIDTH))),
+                (None, after) if after >= MAX_LINE_WIDTH => Err(None),
+                (None, after) => Ok(after),
+            }
+        });
+        found.err().flatten()
+    }
+
     pub fn new(plus_indent: Indent, docs: Vec<Doc>) -> Group {
         let width = total_width(&docs);
         let flat: String = docs.iter().map(Doc::flat).collect();
@@ -193,12 +208,27 @@ impl Doc {
         }
     }
 
+    pub fn width_before(&self, marker: HugPoint) -> Option<usize> {
+        match self {
+            Doc::Marker(point) if *point == marker => Some(0),
+            Doc::Group(group) => group.width_before(marker),
+            Doc::Choice(choice) => choice.fallback.width_before(marker),
+            Doc::Marker(_)
+            | Doc::Text(..)
+            | Doc::Lines(..)
+            | Doc::Comment { .. }
+            | Doc::Space
+            | Doc::Header(_)
+            | Doc::Break(_) => None,
+        }
+    }
+
     pub fn range(&self) -> Range {
         match self {
             Doc::Text(_, range) | Doc::Lines(_, range) | Doc::Comment { range, .. } => *range,
             Doc::Group(group) => group.range,
             Doc::Choice(choice) => choice.fallback.range,
-            Doc::Space | Doc::Header(_) | Doc::Break(_) => None,
+            Doc::Space | Doc::Header(_) | Doc::Break(_) | Doc::Marker(_) => None,
         }
     }
 
@@ -211,7 +241,7 @@ impl Doc {
             Doc::Lines(..) => MAX_LINE_WIDTH,
             Doc::Comment { width, .. } => *width,
             Doc::Space => 1,
-            Doc::Header(_) => 0,
+            Doc::Header(_) | Doc::Marker(_) => 0,
             Doc::Break(separator) => separator.width(),
             Doc::Group(group) => group.width,
             Doc::Choice(choice) => choice.fallback.width,
@@ -224,7 +254,7 @@ impl Doc {
             Doc::Break(Break { flat, .. }) | Doc::Group(Group { flat, .. }) => flat,
             Doc::Choice(choice) => &choice.fallback.flat,
             Doc::Space => " ",
-            Doc::Lines(..) | Doc::Header(_) => "",
+            Doc::Lines(..) | Doc::Header(_) | Doc::Marker(_) => "",
         }
     }
 }
@@ -387,6 +417,7 @@ impl Solver<'_> {
 
     fn leaf(&mut self, doc: &Doc, state: State) -> State {
         match doc {
+            Doc::Marker(_) => state,
             Doc::Group(group) => self.group(group, state),
             Doc::Choice(choice) => self.choice(choice, state),
             Doc::Text(text, range) => {
@@ -1077,5 +1108,44 @@ mod tests {
         let ratio = timings[1] / timings[0].max(f64::EPSILON);
 
         assert!(ratio < 10.0, "4x the doc took {ratio:.1}x the time");
+    }
+
+    #[test]
+    fn when_width_before_with_each_place_of_the_marker_then_returns_gjf_width_before() {
+        let zero = || Indent::Const(0);
+        let cases = [
+            (
+                Doc::Group(Group::new(
+                    zero(),
+                    vec![Doc::Text("ab".to_owned(), None), Doc::Marker(HugPoint(1))],
+                )),
+                Some(2),
+            ),
+            (
+                Doc::Group(Group::new(
+                    zero(),
+                    vec![
+                        Doc::Text("x".repeat(MAX_LINE_WIDTH), None),
+                        Doc::Marker(HugPoint(1)),
+                    ],
+                )),
+                None,
+            ),
+            (
+                Doc::Choice(Box::new(Choice {
+                    preferred: Group::new(zero(), Vec::new()),
+                    prefix_width: 0,
+                    fallback: Group::new(zero(), vec![Doc::Space, Doc::Marker(HugPoint(1))]),
+                    fallback_if_flat_on_next_line: true,
+                })),
+                Some(1),
+            ),
+            (Doc::Marker(HugPoint(2)), None),
+        ];
+        for (doc, expected) in cases {
+            let width = doc.width_before(HugPoint(1));
+
+            assert_eq!(width, expected, "{doc:?}");
+        }
     }
 }
