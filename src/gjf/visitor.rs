@@ -63,6 +63,7 @@ pub struct Visitor<'a> {
     pub decoded: &'a crate::lexer::unicode_escapes::Translated,
     pub hug_points: std::collections::HashMap<usize, super::doc::HugPoint>,
     pub not_huggable: std::collections::HashSet<usize>,
+    pub type_annotations: std::collections::HashSet<String>,
 }
 
 impl<'a> Visitor<'a> {

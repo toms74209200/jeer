@@ -124,6 +124,7 @@ fn format_cleaned(source: &str, unit: &Unit) -> Result<String, Unformatted> {
         decoded: &unit.text,
         hug_points: std::collections::HashMap::new(),
         not_huggable: std::collections::HashSet::new(),
+        type_annotations: std::collections::HashSet::new(),
     };
     visitor.compilation_unit(&tree)?;
     let (doc, blank_lines) = visitor.builder.build()?;
@@ -654,6 +655,7 @@ mod tests {
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
             "/** {@code doc} */\nclass A {}\n",
+            "import org.jspecify.annotations.Nullable;\nclass A { @Nullable Object f() { return null; } }\n",
             "/// doc\nclass A {}\n",
             "record R(int x) {}\n",
             "class A { boolean f(Object o) { return o instanceof String s; } }\n",
