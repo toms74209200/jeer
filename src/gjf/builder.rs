@@ -257,7 +257,7 @@ impl<'a> Builder<'a> {
                 Reality::Real => {
                     let mut newlines = 0;
                     let mut space = false;
-                    let mut last_was_comment = false;
+                    let mut last_comment = None;
                     for tok in &token.before {
                         let comment = match tok.kind {
                             TokKind::Newline => {
@@ -285,11 +285,20 @@ impl<'a> Builder<'a> {
                         if slash_slash {
                             before.push(Event::Break(forced(Indent::Const(0))));
                         }
+                        if let CommentKind::Doc | CommentKind::MarkdownDoc = comment {
+                            before.push(Event::Break(forced(Indent::Const(0))));
+                        }
                         space = !slash_slash;
                         newlines = 0;
-                        last_was_comment = true;
+                        last_comment = Some(comment);
                     }
-                    if last_was_comment && newlines > 1 {
+                    let allow_blank = match last_comment {
+                        Some(CommentKind::Line | CommentKind::Block | CommentKind::MarkdownDoc) => {
+                            true
+                        }
+                        Some(CommentKind::Doc) | None => false,
+                    };
+                    if allow_blank && newlines > 1 {
                         let index = token.index;
                         let merged = match blank_lines.remove(&index) {
                             Some(existing) => existing.merge(BlankLine::Yes),
@@ -297,7 +306,7 @@ impl<'a> Builder<'a> {
                         };
                         blank_lines.insert(index, merged);
                     }
-                    match (last_was_comment && newlines > 0, space) {
+                    match (last_comment.is_some() && newlines > 0, space) {
                         (true, _) => before.push(Event::Break(forced(Indent::Const(0)))),
                         (false, true) => before.push(Event::Space),
                         (false, false) => {}
@@ -310,7 +319,11 @@ impl<'a> Builder<'a> {
                             CommentKind::Line | CommentKind::MarkdownDoc => true,
                             CommentKind::Block | CommentKind::Doc => false,
                         };
-                        let break_after = !slash_slash && trailing.is_some();
+                        let break_after = match comment {
+                            CommentKind::Doc | CommentKind::MarkdownDoc => true,
+                            CommentKind::Block => trailing.is_some(),
+                            CommentKind::Line => false,
+                        };
                         match break_after {
                             true => after.push(Event::Break(forced(
                                 trailing.clone().unwrap_or(Indent::Const(0)),
