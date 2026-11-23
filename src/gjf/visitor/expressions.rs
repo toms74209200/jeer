@@ -518,13 +518,14 @@ impl<'a> Visitor<'a> {
                 }
                 Head::Type(_) => false,
             };
-            if anonymous {
-                return Err(Unformatted::Deferred);
+            match anonymous {
+                true => self.builder.add(OPEN_ZERO)?,
+                false => self.builder.add(OPEN_PLUS_FOUR)?,
             }
-            self.builder.add(OPEN_PLUS_FOUR)?;
             let indices = match head {
                 Head::Node(node, indices) => {
-                    if let (false, NodeKind::NewClass, Some(Element::Node(arguments))) = (
+                    if let (false, false, NodeKind::NewClass, Some(Element::Node(arguments))) = (
+                        anonymous,
                         links.is_empty(),
                         node.kind,
                         node.children.iter().find(|child| {
@@ -547,8 +548,18 @@ impl<'a> Visitor<'a> {
                     Vec::new()
                 }
             };
-            self.builder.add(BREAK)?;
-            need_dot = true;
+            match anonymous {
+                true => {
+                    let Some(dot) = links.first().and_then(|link| link.dot) else {
+                        return Err(Unformatted::Deferred);
+                    };
+                    self.token(dot, ZERO, None)?;
+                }
+                false => {
+                    self.builder.add(BREAK)?;
+                    need_dot = true;
+                }
+            }
             self.indices(&indices)?;
             if links.is_empty() {
                 return self.builder.add(CLOSE);

@@ -436,6 +436,10 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/expr-method-chain/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/expr-anonymous-chain-head/input.java"),
+                include_str!("../tests/fixtures/gjf/expr-anonymous-chain-head/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
