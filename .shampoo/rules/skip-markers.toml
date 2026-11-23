@@ -1,0 +1,5 @@
+rule = "A skip marker a task adds sits on a fixture jeer does not pass yet: a fixture jeer already passes carries none (compatibility policy, docs/development.md §8.1)."
+check = "skip-markers"
+transitions = ["task", "pr"]
+paths = ["**.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tests/fixtures/**", "scripts/check-skip-markers.sh", "scripts/test-fixtures.sh"]
+judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

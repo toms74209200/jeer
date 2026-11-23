@@ -1,0 +1,5 @@
+rule = "Every line of production code a task adds runs in a small test: the diff against the merge-base has no added line outside `#[cfg(test)]` and the side-effect modules that out/small.lcov counts as not run (tests policy, docs/development.md §8.1)."
+check = "diff-coverage"
+transitions = ["task", "pr"]
+paths = ["**.rs", "Cargo.toml", "Cargo.lock", "scripts/check-diff-coverage.sh", "rust-toolchain.toml", "scripts/test-small.sh", "scripts/cargo-llvm-cov.sh", "scripts/trace-exec.sh", "scripts/side-effect-modules.txt"]
+judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

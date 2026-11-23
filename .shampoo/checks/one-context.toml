@@ -1,0 +1,2 @@
+command = "scripts/check-one-context.sh"
+size = "small"
