@@ -420,6 +420,22 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/expr-new-class/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/expr-casts/input.java"),
+                include_str!("../tests/fixtures/gjf/expr-casts/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/expr-instanceof-type/input.java"),
+                include_str!("../tests/fixtures/gjf/expr-instanceof-type/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/expr-ternary/input.java"),
+                include_str!("../tests/fixtures/gjf/expr-ternary/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/expr-method-chain/input.java"),
+                include_str!("../tests/fixtures/gjf/expr-method-chain/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
@@ -576,6 +592,7 @@ mod tests {
             "/** doc */\nclass A {}\n",
             "/// doc\nclass A {}\n",
             "record R(int x) {}\n",
+            "class A { boolean f(Object o) { return o instanceof String s; } }\n",
             "class A { String s = \"\"\"\n  x\"\"\"; }\n",
             "class A { void f(A this) {} }\n",
             "class A { int @B [] x; }\n",
