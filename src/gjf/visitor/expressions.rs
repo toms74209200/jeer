@@ -505,9 +505,40 @@ impl<'a> Visitor<'a> {
         let has_head = head.is_some();
         let mut need_dot = false;
         if let Some(head) = head {
+            let anonymous = match &head {
+                Head::Node(node, _) => {
+                    node.kind == NodeKind::NewClass
+                        && matches!(
+                            node.children.last(),
+                            Some(Element::Node(Node {
+                                kind: NodeKind::ClassBody,
+                                ..
+                            }))
+                        )
+                }
+                Head::Type(_) => false,
+            };
+            if anonymous {
+                return Err(Unformatted::Deferred);
+            }
             self.builder.add(OPEN_PLUS_FOUR)?;
             let indices = match head {
                 Head::Node(node, indices) => {
+                    if let (false, NodeKind::NewClass, Some(Element::Node(arguments))) = (
+                        links.is_empty(),
+                        node.kind,
+                        node.children.iter().find(|child| {
+                            matches!(
+                                child,
+                                Element::Node(Node {
+                                    kind: NodeKind::Arguments,
+                                    ..
+                                })
+                            )
+                        }),
+                    ) {
+                        self.do_not_hug(arguments);
+                    }
                     self.scan(node)?;
                     indices
                 }
@@ -1124,6 +1155,108 @@ impl<'a> Visitor<'a> {
         }
         self.token(close, ZERO, None)?;
         self.builder.add(CLOSE)
+    }
+
+    pub(super) fn new_class(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let (qualifier, rest) = match node.children.as_slice() {
+            [Element::Node(outer), Element::Token(dot), rest @ ..] => (Some((outer, dot)), rest),
+            rest => (None, rest),
+        };
+        let [Element::Token(keyword), rest @ ..] = rest else {
+            return Err(Unformatted::Deferred);
+        };
+        let (type_arguments, rest) = match rest {
+            [Element::Node(arguments), rest @ ..] if arguments.kind == NodeKind::TypeArguments => {
+                (Some(arguments), rest)
+            }
+            rest => (None, rest),
+        };
+        let (created, arguments, body) = match rest {
+            [Element::Node(created), Element::Node(arguments)] => (created, arguments, None),
+            [
+                Element::Node(created),
+                Element::Node(arguments),
+                Element::Node(body),
+            ] => (created, arguments, Some(body)),
+            _ => return Err(Unformatted::Deferred),
+        };
+        self.builder.add(OPEN_ZERO)?;
+        if let Some((outer, dot)) = qualifier {
+            self.scan(outer)?;
+            self.builder.add(BREAK)?;
+            self.token(dot, ZERO, None)?;
+        }
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        if let Some(type_arguments) = type_arguments {
+            self.type_argument_list(type_arguments, OPEN_PLUS_FOUR)?;
+        }
+        if body.is_some() {
+            self.do_not_hug(arguments);
+        }
+        self.scan(created)?;
+        self.arguments(arguments, PLUS_FOUR, ZERO)?;
+        self.builder.add(CLOSE)?;
+        match body {
+            Some(body) => self.class_body(body),
+            None => Ok(()),
+        }
+    }
+
+    pub(super) fn new_array(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [Element::Token(keyword), Element::Node(created), rest @ ..] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let (base, dims, initializer) = match (created, rest) {
+            (ty, [Element::Node(initializer)])
+                if ty.kind == NodeKind::ArrayType
+                    && initializer.kind == NodeKind::ArrayInitializer =>
+            {
+                match ty.children.as_slice() {
+                    [Element::Node(base), dims @ ..] => (base, dims, Some(initializer)),
+                    _ => return Err(Unformatted::Deferred),
+                }
+            }
+            (base, dims) => (base, dims, None),
+        };
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        self.scan(base)?;
+        self.builder.add(OPEN_ZERO)?;
+        for dim in dims {
+            let Element::Node(dim) = dim else {
+                return Err(Unformatted::Deferred);
+            };
+            match dim.children.as_slice() {
+                [Element::Token(open), Element::Token(close)] => {
+                    self.builder.add(FILL)?;
+                    self.token(open, ZERO, None)?;
+                    self.token(close, ZERO, None)?;
+                }
+                [
+                    Element::Token(open),
+                    Element::Node(size),
+                    Element::Token(close),
+                ] => {
+                    self.builder.add(FILL)?;
+                    self.token(open, ZERO, None)?;
+                    self.scan(size)?;
+                    self.token(close, ZERO, None)?;
+                }
+                _ => return Err(Unformatted::Deferred),
+            }
+        }
+        self.builder.add(CLOSE)?;
+        self.builder.add(CLOSE)?;
+        match initializer {
+            Some(initializer) => {
+                self.builder.add(SPACE)?;
+                self.array_initializer(initializer, None)
+            }
+            None => Ok(()),
+        }
     }
 
     pub(super) fn lambda(&mut self, node: &'a Node) -> Result<(), Unformatted> {
