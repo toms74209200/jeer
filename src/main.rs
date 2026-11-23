@@ -1,8 +1,5 @@
 mod cli;
-#[expect(
-    dead_code,
-    reason = "hugged lambdas and text blocks reach the visitor in tasks 130 and 150"
-)]
+#[expect(dead_code, reason = "text blocks reach the visitor in task 150")]
 mod gjf;
 mod io;
 mod lexer;

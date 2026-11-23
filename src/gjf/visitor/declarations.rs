@@ -737,6 +737,15 @@ impl<'a> Visitor<'a> {
             self.builder.add(FORCED)?;
         }
         self.token(name, ZERO, None)?;
+        let bodied = rest.iter().any(|part| {
+            matches!(
+                part,
+                Element::Node(Node {
+                    kind: NodeKind::ClassBody,
+                    ..
+                })
+            )
+        });
         for part in rest {
             let Element::Node(part) = part else {
                 return Err(Unformatted::Deferred);
@@ -751,7 +760,10 @@ impl<'a> Visitor<'a> {
                     self.token(paren, ZERO, None)?;
                 }
             } else {
-                self.arguments(part, PLUS_FOUR)?;
+                if bodied {
+                    self.do_not_hug(part);
+                }
+                self.arguments(part, PLUS_FOUR, ZERO)?;
             }
         }
         Ok(())

@@ -1,10 +1,13 @@
 use super::super::builder::{Op, Unformatted};
 use super::super::doc::{BreakMode, Indent};
+use super::super::output::BlankLine;
+use super::declarations::{Declaration, field_annotation_direction};
+use super::statements::Collapse;
 use super::{
     BREAK, CLOSE, FILL, FILL_SPACE, FORCED, MINUS_TWO, OPEN_PLUS_FOUR, OPEN_PLUS_TWO, OPEN_ZERO,
     PLUS_FOUR, PLUS_TWO, SPACE, SPACE_BREAK, Visitor, ZERO,
 };
-use crate::lexer::token::{Token, TokenKind};
+use crate::lexer::token::{Punct, Token, TokenKind};
 use crate::parser::syntax::{Element, Node, NodeKind};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -665,13 +668,18 @@ impl<'a> Visitor<'a> {
             false => 0,
         };
         let mut dotted = need_dot;
-        for link in links {
+        for (index, link) in links.iter().enumerate() {
+            let broken = need_dot || (dotted && link.dot.is_some() && length > minimum);
             if let (true, Some(dot)) = (dotted, link.dot) {
                 if length > minimum {
                     self.builder.add(BREAK)?;
                 }
                 self.token(dot, ZERO, None)?;
                 length += 1;
+            }
+            let first_line = !broken && index + 1 < links.len();
+            if let (true, Some(call)) = (first_line, &link.call) {
+                self.do_not_hug(call.arguments);
             }
             let filled = match (
                 &link.call,
@@ -721,10 +729,15 @@ impl<'a> Visitor<'a> {
                         true => PLUS_FOUR,
                         false => ZERO,
                     };
+                    let hugged = match first_line {
+                        true => PLUS_FOUR,
+                        false => ZERO,
+                    };
                     self.arguments_and_indices(
                         link,
                         Indent::If(type_tag, Box::new(PLUS_FOUR), Box::new(ZERO)),
                         indent,
+                        hugged,
                     )?;
                 }
             }
@@ -755,6 +768,13 @@ impl<'a> Visitor<'a> {
         let name_tag = self.builder.tag();
         let mut dotted = need_dot;
         for (index, link) in links.iter().enumerate() {
+            if let (false, true, Some(call)) = (
+                need_dot,
+                (index == 0 || prefixes.contains(&index)) && index + 1 < links.len(),
+                &link.call,
+            ) {
+                self.do_not_hug(call.arguments);
+            }
             if let (true, Some(dot)) = (dotted, link.dot) {
                 let mode = match unconsumed.last() {
                     Some(&prefix) if index <= prefix => fill,
@@ -781,7 +801,8 @@ impl<'a> Visitor<'a> {
             self.arguments_and_indices(
                 link,
                 Indent::If(type_tag, Box::new(PLUS_FOUR), Box::new(ZERO)),
-                Indent::If(name_tag, Box::new(PLUS_FOUR), Box::new(otherwise)),
+                Indent::If(name_tag, Box::new(PLUS_FOUR), Box::new(otherwise.clone())),
+                Indent::If(name_tag, Box::new(ZERO), Box::new(otherwise)),
             )?;
             dotted = true;
         }
@@ -798,26 +819,8 @@ impl<'a> Visitor<'a> {
             ..
         }) = &link.call
         {
-            let [Element::Token(open), inner @ .., Element::Token(close)] =
-                type_arguments.children.as_slice()
-            else {
-                return Err(Unformatted::Deferred);
-            };
             self.builder.add(OPEN_PLUS_FOUR)?;
-            self.token(open, ZERO, None)?;
-            self.builder.add(OPEN_ZERO)?;
-            self.builder.add(Op::Fence)?;
-            for child in inner {
-                match child {
-                    Element::Token(comma) => {
-                        self.token(comma, ZERO, None)?;
-                        self.builder.add(FILL_SPACE)?;
-                    }
-                    Element::Node(argument) => self.scan(argument)?,
-                }
-            }
-            self.builder.add(CLOSE)?;
-            self.token(close, ZERO, None)?;
+            self.type_argument_list(type_arguments, OPEN_ZERO)?;
             self.builder.add(Op::Break {
                 mode: BreakMode::Unified,
                 flat: "",
@@ -834,10 +837,11 @@ impl<'a> Visitor<'a> {
         link: &Link<'a>,
         type_indent: Indent,
         indent: Indent,
+        hugged_indent: Indent,
     ) -> Result<(), Unformatted> {
         if let Some(call) = &link.call {
             self.builder.add(Op::Open(type_indent))?;
-            self.arguments(call.arguments, indent)?;
+            self.arguments(call.arguments, indent, hugged_indent)?;
             self.builder.add(CLOSE)?;
         }
         self.indices(&link.indices)
@@ -857,10 +861,29 @@ impl<'a> Visitor<'a> {
         self.builder.add(CLOSE)
     }
 
+    pub(super) fn do_not_hug(&mut self, arguments: &Node) {
+        match arguments.children.as_slice() {
+            [Element::Token(_), Element::Node(only), Element::Token(_)]
+                if only.kind == NodeKind::Lambda
+                    && matches!(
+                        only.children.last(),
+                        Some(Element::Node(Node {
+                            kind: NodeKind::Block,
+                            ..
+                        }))
+                    ) =>
+            {
+                self.not_huggable.insert(std::ptr::from_ref(only).addr());
+            }
+            _ => {}
+        }
+    }
+
     pub(super) fn arguments(
         &mut self,
         arguments: &'a Node,
         plus_indent: Indent,
+        hugged_plus_indent: Indent,
     ) -> Result<(), Unformatted> {
         let [Element::Token(open), inner @ .., Element::Token(close)] =
             arguments.children.as_slice()
@@ -1017,7 +1040,44 @@ impl<'a> Visitor<'a> {
                 ) => literal = false,
             }
         }
-        self.builder.add(Op::Open(plus_indent))?;
+        let huggable = match expressions.as_slice() {
+            [only]
+                if only.kind == NodeKind::Lambda
+                    && !self
+                        .not_huggable
+                        .contains(&std::ptr::from_ref(*only).addr()) =>
+            {
+                Some(*only)
+            }
+            _ => None,
+        };
+        let opener = match huggable {
+            Some(only) => {
+                let point = self.builder.hug_point();
+                self.hug_points
+                    .insert(std::ptr::from_ref(only).addr(), point);
+                let block = matches!(
+                    only.children.last(),
+                    Some(Element::Node(Node {
+                        kind: NodeKind::Block,
+                        ..
+                    }))
+                );
+                self.builder.add(Op::OpenHuggable {
+                    plus_indent,
+                    hugged_plus_indent: match block {
+                        true => ZERO,
+                        false => hugged_plus_indent,
+                    },
+                    point,
+                })?;
+                Op::OpenHuggedArguments
+            }
+            None => {
+                self.builder.add(Op::Open(plus_indent))?;
+                OPEN_ZERO
+            }
+        };
         self.token(open, ZERO, None)?;
         match (
             expressions.as_slice(),
@@ -1053,16 +1113,142 @@ impl<'a> Visitor<'a> {
                 self.token(commas.first().ok_or(Unformatted::Deferred)?, ZERO, None)?;
                 self.builder.add(SPACE_BREAK)?;
                 self.builder.add(OPEN_ZERO)?;
-                self.argument_list(rest, &commas[1..])?;
+                self.argument_list(rest, &commas[1..], OPEN_ZERO)?;
                 self.builder.add(CLOSE)?;
                 self.builder.add(CLOSE)?;
             }
             (all, false, false) => {
                 self.builder.add(BREAK)?;
-                self.argument_list(all, &commas)?;
+                self.argument_list(all, &commas, opener)?;
             }
         }
         self.token(close, ZERO, None)?;
+        self.builder.add(CLOSE)
+    }
+
+    pub(super) fn lambda(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [
+            Element::Node(parameters),
+            Element::Token(arrow),
+            Element::Node(body),
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let parens = matches!(
+            parameters.children.first(),
+            Some(Element::Token(open)) if open.kind == TokenKind::Punct(Punct::LParen)
+        );
+        match parens {
+            true => self.builder.add(OPEN_PLUS_FOUR)?,
+            false => self.builder.add(OPEN_ZERO)?,
+        }
+        for child in &parameters.children {
+            match child {
+                Element::Token(comma) if comma.kind == TokenKind::Punct(Punct::Comma) => {
+                    self.token(comma, ZERO, None)?;
+                    self.builder.add(SPACE_BREAK)?;
+                }
+                Element::Token(token) => self.token(token, ZERO, None)?,
+                Element::Node(parameter) => {
+                    let (modifiers, ty, varargs, name, dims) = match parameter.children.as_slice() {
+                        [
+                            Element::Node(modifiers),
+                            Element::Node(ty),
+                            Element::Token(varargs),
+                            Element::Token(name),
+                            dims @ ..,
+                        ] if varargs.kind == TokenKind::Punct(Punct::Ellipsis) => {
+                            (modifiers, ty, Some(varargs), name, dims)
+                        }
+                        [
+                            Element::Node(modifiers),
+                            Element::Node(ty),
+                            Element::Token(name),
+                            dims @ ..,
+                        ] => (modifiers, ty, None, name, dims),
+                        _ => return Err(Unformatted::Deferred),
+                    };
+                    self.sync(parameter)?;
+                    self.declare_one(
+                        Declaration::Local,
+                        field_annotation_direction(modifiers),
+                        Some(modifiers),
+                        ty,
+                        varargs,
+                        name,
+                        dims,
+                        None,
+                        None,
+                    )?;
+                }
+            }
+        }
+        self.builder.add(CLOSE)?;
+        self.builder.add(SPACE)?;
+        self.token(arrow, ZERO, None)?;
+        if let Some(point) = self.hug_points.remove(&std::ptr::from_ref(node).addr()) {
+            self.builder.add(Op::HugPoint(point))?;
+        }
+        match body.kind == NodeKind::Block {
+            true => {
+                self.builder.add(OPEN_ZERO)?;
+                self.builder.add(SPACE)?;
+                self.block(body, Collapse::Empty, BlankLine::No, BlankLine::No)?;
+            }
+            false => {
+                self.builder.add(OPEN_PLUS_FOUR)?;
+                self.builder.add(SPACE_BREAK)?;
+                self.scan(body)?;
+            }
+        }
+        self.builder.add(CLOSE)
+    }
+
+    fn type_argument_list(
+        &mut self,
+        type_arguments: &'a Node,
+        opener: Op<'static>,
+    ) -> Result<(), Unformatted> {
+        let [Element::Token(open), items @ .., Element::Token(close)] =
+            type_arguments.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        self.token(open, ZERO, None)?;
+        self.builder.add(opener)?;
+        self.builder.add(Op::Fence)?;
+        for item in items {
+            match item {
+                Element::Token(comma) => {
+                    self.token(comma, ZERO, None)?;
+                    self.builder.add(FILL_SPACE)?;
+                }
+                Element::Node(argument) => self.scan(argument)?,
+            }
+        }
+        self.builder.add(CLOSE)?;
+        self.token(close, ZERO, None)
+    }
+
+    pub(super) fn method_reference(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [Element::Node(base), Element::Token(colons), rest @ ..] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let (type_arguments, name) = match rest {
+            [Element::Token(name)] => (None, name),
+            [Element::Node(type_arguments), Element::Token(name)] => (Some(type_arguments), name),
+            _ => return Err(Unformatted::Deferred),
+        };
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        self.scan(base)?;
+        self.builder.add(BREAK)?;
+        self.token(colons, ZERO, None)?;
+        if let Some(type_arguments) = type_arguments {
+            self.type_argument_list(type_arguments, OPEN_PLUS_FOUR)?;
+        }
+        self.token(name, ZERO, None)?;
         self.builder.add(CLOSE)
     }
 
@@ -1070,8 +1256,9 @@ impl<'a> Visitor<'a> {
         &mut self,
         expressions: &[&'a Node],
         commas: &[&'a Token],
+        opener: Op<'static>,
     ) -> Result<(), Unformatted> {
-        self.builder.add(OPEN_ZERO)?;
+        self.builder.add(opener)?;
         let mode = match self.short_items(expressions)? {
             Items::Short => BreakMode::Fill,
             Items::Long => BreakMode::Unified,

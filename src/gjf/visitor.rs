@@ -61,6 +61,8 @@ pub struct Visitor<'a> {
     pub builder: Builder<'a>,
     pub source: &'a str,
     pub decoded: &'a crate::lexer::unicode_escapes::Translated,
+    pub hug_points: std::collections::HashMap<usize, super::doc::HugPoint>,
+    pub not_huggable: std::collections::HashSet<usize>,
 }
 
 impl<'a> Visitor<'a> {
@@ -252,6 +254,8 @@ impl<'a> Visitor<'a> {
             NodeKind::ForEachStmt => self.for_each_statement(node),
             NodeKind::DoStmt => self.do_statement(node),
             NodeKind::TryStmt => self.try_statement(node),
+            NodeKind::Lambda => self.lambda(node),
+            NodeKind::MethodReference => self.method_reference(node),
             NodeKind::SwitchStmt => self.switch_statement(node),
             NodeKind::AssertStmt => self.assert_statement(node),
             NodeKind::ThrowStmt => self.throw_statement(node),
@@ -425,9 +429,7 @@ impl<'a> Visitor<'a> {
             | NodeKind::NewArray
             | NodeKind::InstanceOf
             | NodeKind::Conditional
-            | NodeKind::Lambda
             | NodeKind::LambdaParameters
-            | NodeKind::MethodReference
             | NodeKind::Cast
             | NodeKind::SwitchExpr
             | NodeKind::TypePattern

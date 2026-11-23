@@ -111,6 +111,8 @@ fn format_cleaned(source: &str, unit: &Unit) -> Result<String, Unformatted> {
         builder: Builder::from(&input),
         source,
         decoded: &unit.text,
+        hug_points: std::collections::HashMap::new(),
+        not_huggable: std::collections::HashSet::new(),
     };
     visitor.compilation_unit(&tree)?;
     let (doc, blank_lines) = visitor.builder.build()?;
@@ -374,6 +376,34 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/stmt-local-class-plain/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/expr-lambda/input.java"),
+                include_str!("../tests/fixtures/gjf/expr-lambda/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/expr-method-ref/input.java"),
+                include_str!("../tests/fixtures/gjf/expr-method-ref/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/cleanup-lambda-parens/input.java"),
+                include_str!("../tests/fixtures/gjf/cleanup-lambda-parens/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/cleanup-enum-constant-arguments/input.java"),
+                include_str!("../tests/fixtures/gjf/cleanup-enum-constant-arguments/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/expr-lambda-hug-call/input.java"),
+                include_str!("../tests/fixtures/gjf/expr-lambda-hug-call/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/expr-lambda-hug-chain/input.java"),
+                include_str!("../tests/fixtures/gjf/expr-lambda-hug-chain/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/expr-lambda-params/input.java"),
+                include_str!("../tests/fixtures/gjf/expr-lambda-params/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
@@ -530,7 +560,6 @@ mod tests {
             "/** doc */\nclass A {}\n",
             "/// doc\nclass A {}\n",
             "record R(int x) {}\n",
-            "class A { Runnable r = () -> {}; }\n",
             "class A { String s = \"\"\"\n  x\"\"\"; }\n",
             "class A { Object o = new Object(); }\n",
             "class A { void f(A this) {} }\n",
