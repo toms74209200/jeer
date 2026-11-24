@@ -114,8 +114,9 @@ fn format_cleaned(source: &str, unit: &Unit) -> Result<String, Unformatted> {
         .filter(|tok| matches!(tok.kind, TokKind::Comment(CommentKind::Doc, _)))
         .map(|tok| {
             let text = javadoc::text::classic_comment_text(&tok.text);
-            javadoc::lexer::lex(&text).map(|tokens| (tok.text.as_str(), tokens))
+            javadoc::lexer::lex(&text).map(|lexed| lexed.map(|tokens| (tok.text.as_str(), tokens)))
         })
+        .filter_map(Result::transpose)
         .collect::<Result<_, _>>()?;
     let tree = significant(&unit.tree);
     let mut visitor = Visitor {
@@ -124,6 +125,7 @@ fn format_cleaned(source: &str, unit: &Unit) -> Result<String, Unformatted> {
         decoded: &unit.text,
         hug_points: std::collections::HashMap::new(),
         not_huggable: std::collections::HashSet::new(),
+        type_annotations: std::collections::HashSet::new(),
     };
     visitor.compilation_unit(&tree)?;
     let (doc, blank_lines) = visitor.builder.build()?;
@@ -489,6 +491,26 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/javadoc-wrap/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/javadoc-lists/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-lists/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-pre/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-pre/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-code/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-code/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-html-entities/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-html-entities/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/imports-javadoc-use/input.java"),
+                include_str!("../tests/fixtures/gjf/imports-javadoc-use/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
@@ -651,9 +673,22 @@ mod tests {
     }
 
     #[test]
+    fn when_format_with_javadoc_markup_then_returns_the_oracle_output() {
+        let input = "class B {\n  /**\n   * Outer:\n   * <ul>\n   * <li>first item text that is long enough to wrap past the line limit of one hundred columns here\n   * <li>nested:\n   *   <ol>\n   *   <li>inner\n   *   </ol>\n   * </li>\n   * </ul>\n   * After {@link Map#get(Object) the {nested} braces} and <code>x  y\n   * z</code> plus { lone } and {@code a}.\n   *\n   * <pre>{@code\n   *     int a = 1;\n   *       int b;\n   * }</pre>\n   *\n   * <pre>\n   * {@code\n   *   tail();}\n   * </pre>\n   *\n   * <pre>{@code}</pre>\n   *\n   * <pre>{@code\n   *   x\n   * } more\n   * </pre>\n   *\n   * <pre>\n   *   plain <code>c</code> d\n   * </pre>\n   *\n   * @param a uses <ul><li>one</ul>\n   */\n  void f(int a) {}\n\n  /** Unbalanced <pre> then @return x */\n  int g() { return 0; }\n\n  /**\n   *   Open {@code\n   * @return x}\n   */\n  int h() { return 0; }\n}\n";
+        let unit = parser::parse(input).ok();
+
+        let formatted = unit.map(|unit| format(input, &unit));
+
+        let expected = "class B {\n  /**\n   * Outer:\n   *\n   * <ul>\n   *   <li>first item text that is long enough to wrap past the line limit of one hundred columns\n   *       here\n   *   <li>nested:\n   *       <ol>\n   *         <li>inner\n   *       </ol>\n   * </ul>\n   *\n   * After {@link Map#get(Object) the {nested} braces} and <code>x  y\n   * z</code> plus { lone } and {@code a}.\n   *\n   * <pre>{@code\n   * int a = 1;\n   *   int b;\n   * }</pre>\n   *\n   * <pre>{@code\n   * tail();\n   * }</pre>\n   *\n   * <pre>{@code}</pre>\n   *\n   * <pre>{@code\n   *   x\n   * } more\n   * </pre>\n   *\n   * <pre>\n   *   plain <code>c</code> d\n   * </pre>\n   *\n   * @param a uses\n   *     <ul>\n   *       <li>one\n   *     </ul>\n   */\n  void f(int a) {}\n\n  /** Unbalanced <pre> then @return x */\n  int g() {\n    return 0;\n  }\n\n  /**\n   *   Open {@code\n   * @return x}\n   */\n  int h() {\n    return 0;\n  }\n}\n";
+        assert_eq!(formatted, Some(Ok(expected.to_owned())));
+    }
+
+    #[test]
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
-            "/** {@code doc} */\nclass A {}\n",
+            "/** <table></table> */\nclass A {}\n",
+            "import org.jspecify.annotations.Nullable;\nclass A { @Nullable Object f() { return null; } }\n",
+            "/** {@snippet :\n * a();\n * } */\nclass A {}\n",
             "/// doc\nclass A {}\n",
             "record R(int x) {}\n",
             "class A { boolean f(Object o) { return o instanceof String s; } }\n",

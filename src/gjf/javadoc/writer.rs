@@ -8,11 +8,20 @@ enum Requested {
     BlankLine,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Indent {
+    List(usize),
+    ListItem(usize),
+}
+
 struct Writer {
     block_indent: usize,
     max_line_length: usize,
     output: String,
+    continuing_list_item: bool,
     continuing_footer_tag: bool,
+    indents: Vec<Indent>,
+    modified_lists: usize,
     remaining_on_line: isize,
     at_start_of_line: bool,
     requested: Requested,
@@ -20,18 +29,31 @@ struct Writer {
 }
 
 impl Writer {
-    fn newline(&mut self) {
+    fn line_start(&mut self) {
         self.output.push('\n');
         self.output.push_str(&" ".repeat(self.block_indent + 1));
         self.output.push_str("* ");
-        let indent = match self.continuing_footer_tag {
+        let width = self.max_line_length.cast_signed() - self.block_indent.cast_signed() - 3;
+        self.remaining_on_line = width;
+        self.at_start_of_line = true;
+    }
+
+    fn newline(&mut self) {
+        self.line_start();
+        let footer = match self.continuing_footer_tag {
             true => 4,
             false => 0,
         };
+        let indent: usize = self
+            .indents
+            .iter()
+            .map(|indent| match indent {
+                Indent::List(width) | Indent::ListItem(width) => *width,
+            })
+            .sum::<usize>()
+            + footer;
         self.output.push_str(&" ".repeat(indent));
-        let width = self.max_line_length.cast_signed() - self.block_indent.cast_signed() - 3;
-        self.remaining_on_line = width - indent.cast_signed();
-        self.at_start_of_line = true;
+        self.remaining_on_line -= indent.cast_signed();
     }
 
     fn flush_whitespace(&mut self) {
@@ -39,7 +61,8 @@ impl Writer {
             true => self.requested,
             false => Requested::None,
         };
-        let requested = match (significant, self.continuing_footer_tag) {
+        let continuing = self.modified_lists > 0 || self.continuing_footer_tag;
+        let requested = match (significant, continuing) {
             (Requested::BlankLine, true) => Requested::Newline,
             (requested, _) => requested,
         };
@@ -72,7 +95,7 @@ impl Writer {
             self.remaining_on_line -= 1;
         }
         self.output.push_str(&token.value);
-        self.at_start_of_line &= token.kind == Kind::ParagraphOpen;
+        self.at_start_of_line &= matches!(token.kind, Kind::ParagraphOpen | Kind::ListItemOpen);
         self.remaining_on_line -= length;
         self.requested = Requested::None;
         self.wrote_anything_significant = true;
@@ -84,7 +107,10 @@ pub fn render(tokens: &[Token], block_indent: usize, max_line_length: usize) -> 
         block_indent,
         max_line_length,
         output: String::from("/**"),
+        continuing_list_item: false,
         continuing_footer_tag: false,
+        indents: Vec::new(),
+        modified_lists: 0,
         remaining_on_line: 0,
         at_start_of_line: false,
         requested: Requested::None,
@@ -93,13 +119,16 @@ pub fn render(tokens: &[Token], block_indent: usize, max_line_length: usize) -> 
     writer.newline();
     for token in tokens {
         match token.kind {
-            Kind::BeginJavadoc | Kind::ParagraphClose => {}
+            Kind::BeginJavadoc | Kind::ParagraphClose | Kind::ListItemClose => {}
             Kind::EndJavadoc => {
                 writer.output.push('\n');
                 writer.output.push_str(&" ".repeat(block_indent + 1));
                 writer.output.push_str("*/");
             }
             Kind::FooterTagStart => {
+                writer.continuing_list_item = false;
+                writer.indents.clear();
+                writer.modified_lists = 0;
                 writer.requested = writer.requested.max(match writer.continuing_footer_tag {
                     true => Requested::Newline,
                     false => Requested::BlankLine,
@@ -107,6 +136,44 @@ pub fn render(tokens: &[Token], block_indent: usize, max_line_length: usize) -> 
                 writer.continuing_footer_tag = false;
                 writer.write_token(token);
                 writer.continuing_footer_tag = true;
+            }
+            Kind::ListOpen => {
+                writer.requested = writer.requested.max(Requested::BlankLine);
+                writer.write_token(token);
+                writer.continuing_list_item = false;
+                writer.indents.push(Indent::List(2));
+                writer.modified_lists += 1;
+                writer.requested = writer.requested.max(Requested::Newline);
+            }
+            Kind::ListClose => {
+                writer.requested = writer.requested.max(Requested::Newline);
+                let list = writer
+                    .indents
+                    .iter()
+                    .rposition(|indent| matches!(indent, Indent::List(_)));
+                writer
+                    .indents
+                    .truncate(list.unwrap_or(writer.indents.len()));
+                writer.write_token(token);
+                writer.modified_lists = writer.modified_lists.saturating_sub(1);
+                writer.requested = writer.requested.max(Requested::BlankLine);
+            }
+            Kind::ListItemOpen => {
+                writer.requested = writer.requested.max(Requested::Newline);
+                if writer.continuing_list_item {
+                    writer.continuing_list_item = false;
+                    let item = writer
+                        .indents
+                        .iter()
+                        .rposition(|indent| matches!(indent, Indent::ListItem(_)));
+                    writer
+                        .indents
+                        .truncate(item.unwrap_or(writer.indents.len()));
+                }
+                writer.write_token(token);
+                writer.continuing_list_item = true;
+                let width = token.value.encode_utf16().count();
+                writer.indents.push(Indent::ListItem(width));
             }
             Kind::ParagraphOpen if writer.wrote_anything_significant => {
                 writer.requested = writer.requested.max(Requested::BlankLine);
@@ -124,8 +191,17 @@ pub fn render(tokens: &[Token], block_indent: usize, max_line_length: usize) -> 
                 }
             }
             Kind::ParagraphOpen => {}
+            Kind::PreOpen => {
+                writer.requested = writer.requested.max(Requested::BlankLine);
+                writer.write_token(token);
+            }
+            Kind::PreClose => {
+                writer.write_token(token);
+                writer.requested = writer.requested.max(Requested::BlankLine);
+            }
+            Kind::CodeOpen | Kind::CodeClose | Kind::Literal => writer.write_token(token),
+            Kind::ForcedNewline => writer.line_start(),
             Kind::Whitespace => writer.requested = writer.requested.max(Requested::Whitespace),
-            Kind::Literal => writer.write_token(token),
         }
     }
     let output = writer.output;

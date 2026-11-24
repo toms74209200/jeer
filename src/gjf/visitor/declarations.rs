@@ -133,6 +133,21 @@ impl<'a> Visitor<'a> {
                         Element::Node(_) => Err(Unformatted::Deferred),
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                let qualified: String = tokens[1..tokens.len() - 1]
+                    .iter()
+                    .filter(|token| token.kind != TokenKind::Keyword(Keyword::Static))
+                    .map(|token| &self.source[token.start..token.end])
+                    .collect();
+                let type_annotations = [
+                    "org.jspecify.annotations.NonNull",
+                    "org.jspecify.annotations.Nullable",
+                    "org.checkerframework.checker.nullness.qual.NonNull",
+                    "org.checkerframework.checker.nullness.qual.Nullable",
+                ];
+                if type_annotations.contains(&qualified.as_str()) {
+                    let simple = qualified.rsplit('.').next().unwrap_or_default();
+                    self.type_annotations.insert(simple.to_owned());
+                }
                 let qualifier = match tokens.as_slice() {
                     [_, second, third, ..] => {
                         second.kind == TokenKind::Keyword(Keyword::Static)
@@ -177,6 +192,21 @@ impl<'a> Visitor<'a> {
         let items = &modifiers.children;
         if items.is_empty() {
             return Ok(());
+        }
+        let before_last = items
+            .len()
+            .checked_sub(2)
+            .and_then(|index| items.get(index));
+        if let (Direction::Vertical, Some(Element::Node(last)), None | Some(Element::Node(_))) =
+            (direction, items.last(), before_last)
+            && last.kind == NodeKind::Annotation
+            && let Some(Element::Node(name)) = last.children.get(1)
+            && let [Element::Token(simple)] = name.children.as_slice()
+            && self
+                .type_annotations
+                .contains(&self.source[simple.start..simple.end])
+        {
+            return Err(Unformatted::Deferred);
         }
         let separator = match direction {
             Direction::Vertical => Op::Break {
