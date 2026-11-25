@@ -5,6 +5,12 @@ root=$(git rev-parse --show-toplevel) || exit 2
 cd "$root" || exit 2
 command -v cargo >/dev/null || { echo "lint: cargo not found" >&2; exit 2; }
 
+if [ -n "${BRIEF:-}" ]; then
+	scripts/check-compiles.sh >/dev/null
+	compiled=$?
+	[ $compiled -eq 1 ] && { echo "lint: fails, the code does not compile (scripts/check-compiles.sh reports why)"; exit 1; }
+	[ $compiled -eq 0 ] || exit $compiled
+fi
 mkdir -p out/exceptions || exit 2
 dirs=()
 for d in src tests benches tools; do

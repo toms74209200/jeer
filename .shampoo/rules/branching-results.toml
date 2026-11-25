@@ -1,5 +1,5 @@
 rule = "No caller branches on a crate-local function's result to recover a fact the function had established: a `bool` result as a condition, a match scrutinee or guard, or compared; an `Option`/`Result` result reduced with `is_some`/`is_none`/`is_ok`/`is_err` or compared (docs/development.md §3). Trait methods and macro expansions are exempt."
 check = "branching-results"
 transitions = ["edit", "task", "pr"]
-paths = ["scripts/brief.sh", "**.rs", "Cargo.toml", "Cargo.lock", "tools/branching-results/**", "scripts/check-branching-results.sh", "scripts/dylint.sh"]
+paths = ["scripts/brief.sh", "**.rs", "Cargo.toml", "Cargo.lock", "tools/branching-results/**", "scripts/check-branching-results.sh", "scripts/dylint.sh", "scripts/check-compiles.sh"]
 judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }
