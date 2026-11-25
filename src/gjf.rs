@@ -600,6 +600,18 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/modern-text-block-indent/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/modern-record/input.java"),
+                include_str!("../tests/fixtures/gjf/modern-record/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/modern-generic-record/input.java"),
+                include_str!("../tests/fixtures/gjf/modern-generic-record/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/stmt-local-class/input.java"),
+                include_str!("../tests/fixtures/gjf/stmt-local-class/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
@@ -817,10 +829,20 @@ mod tests {
     }
 
     #[test]
+    fn when_format_with_records_then_returns_the_oracle_output() {
+        let input = "import java.io.Serializable;\nimport java.util.List;\nclass A {\n  record Empty() {}\n  record Box<T>(T value) {}\n  record Var(int first, String... rest) implements Comparable<Var>, Serializable {\n    Var {\n      first = first + 1;\n    }\n    public int compareTo(Var other) { return 0; }\n  }\n  record LongHeader(List<String> someVeryLongComponentName, List<String> anotherVeryLongComponentName) {}\n  @Deprecated record Annotated(@Deprecated int value) {}\n  record Gen<T extends Comparable<T>>(T value) implements Comparable<Gen<T>> {\n    public int compareTo(Gen<T> other) { return 0; }\n  }\n}\n";
+        let unit = parser::parse(input).ok();
+
+        let formatted = unit.map(|unit| format(input, &unit));
+
+        let expected = "import java.io.Serializable;\nimport java.util.List;\n\nclass A {\n  record Empty() {}\n\n  record Box<T>(T value) {}\n\n  record Var(int first, String... rest) implements Comparable<Var>, Serializable {\n    Var {\n      first = first + 1;\n    }\n\n    public int compareTo(Var other) {\n      return 0;\n    }\n  }\n\n  record LongHeader(\n      List<String> someVeryLongComponentName, List<String> anotherVeryLongComponentName) {}\n\n  @Deprecated\n  record Annotated(@Deprecated int value) {}\n\n  record Gen<T extends Comparable<T>>(T value) implements Comparable<Gen<T>> {\n    public int compareTo(Gen<T> other) {\n      return 0;\n    }\n  }\n}\n";
+        assert_eq!(formatted, Some(Ok(expected.to_owned())));
+    }
+
+    #[test]
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
             "/// doc\nclass A {}\n",
-            "record R(int x) {}\n",
             "class A { <T> @B int f() { return 0; } }\n",
             "class A { boolean f(Object o) { return o instanceof String s; } }\n",
             "class A { void f(A this) {} }\n",
