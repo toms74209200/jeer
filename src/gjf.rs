@@ -106,12 +106,11 @@ fn format_cleaned(source: &str, unit: &Unit) -> Result<String, Unformatted> {
         .flat_map(|token| token.before.iter().chain(&token.after));
     let javadocs: HashMap<&str, Vec<javadoc::lexer::Token>> = comments
         .filter(|tok| matches!(tok.kind, TokKind::Comment(CommentKind::Doc, _)))
-        .map(|tok| {
+        .filter_map(|tok| {
             let text = javadoc::text::classic_comment_text(&tok.text);
-            javadoc::lexer::lex(&text).map(|lexed| lexed.map(|tokens| (tok.text.as_str(), tokens)))
+            javadoc::lexer::lex(&text).map(|tokens| (tok.text.as_str(), tokens))
         })
-        .filter_map(Result::transpose)
-        .collect::<Result<_, _>>()?;
+        .collect();
     let tree = significant(&unit.tree);
     let mut visitor = Visitor {
         builder: Builder::from(&input),
@@ -525,6 +524,42 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/javadoc-markdown-short/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/javadoc-literal-lt/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-literal-lt/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-snippet/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-snippet/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-table/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-table/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-blockquote/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-blockquote/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-headers/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-headers/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-br/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-br/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-html-comment/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-html-comment/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-link/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-link/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-moe-strip/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-moe-strip/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
@@ -688,12 +723,12 @@ mod tests {
 
     #[test]
     fn when_format_with_javadoc_markup_then_returns_the_oracle_output() {
-        let input = "class B {\n  /**\n   * Outer:\n   * <ul>\n   * <li>first item text that is long enough to wrap past the line limit of one hundred columns here\n   * <li>nested:\n   *   <ol>\n   *   <li>inner\n   *   </ol>\n   * </li>\n   * </ul>\n   * After {@link Map#get(Object) the {nested} braces} and <code>x  y\n   * z</code> plus { lone } and {@code a}.\n   *\n   * <pre>{@code\n   *     int a = 1;\n   *       int b;\n   * }</pre>\n   *\n   * <pre>\n   * {@code\n   *   tail();}\n   * </pre>\n   *\n   * <pre>{@code}</pre>\n   *\n   * <pre>{@code\n   *   x\n   * } more\n   * </pre>\n   *\n   * <pre>\n   *   plain <code>c</code> d\n   * </pre>\n   *\n   * @param a uses <ul><li>one</ul>\n   */\n  void f(int a) {}\n\n  /** Unbalanced <pre> then @return x */\n  int g() { return 0; }\n\n  /**\n   *   Open {@code\n   * @return x}\n   */\n  int h() { return 0; }\n}\n";
+        let input = "class B {\n  /**\n   * Outer:\n   * <ul>\n   * <li>first item text that is long enough to wrap past the line limit of one hundred columns here\n   * <li>nested:\n   *   <ol>\n   *   <li>inner\n   *   </ol>\n   * </li>\n   * </ul>\n   * After {@link Map#get(Object) the {nested} braces} and <code>x  y\n   * z</code> plus { lone } and {@code a}.\n   * See {@link a {@snippet b} c} and a break<br clear=\"all\">here.\n   *\n   * <pre>{@code\n   *     int a = 1;\n   *       int b;\n   * }</pre>\n   *\n   * <pre>\n   * {@code\n   *   tail();}\n   * </pre>\n   *\n   * <pre>{@code}</pre>\n   *\n   * <pre>{@code\n   *   x\n   * } more\n   * </pre>\n   *\n   * <pre>\n   *   plain <code>c</code> d\n   * </pre>\n   *\n   * @param a uses <ul><li>one</ul>\n   */\n  void f(int a) {}\n\n  /** Unbalanced <pre> then @return x */\n  int g() { return 0; }\n\n  /**\n   *   Open {@code\n   * @return x}\n   */\n  int h() { return 0; }\n}\n";
         let unit = parser::parse(input).ok();
 
         let formatted = unit.map(|unit| format(input, &unit));
 
-        let expected = "class B {\n  /**\n   * Outer:\n   *\n   * <ul>\n   *   <li>first item text that is long enough to wrap past the line limit of one hundred columns\n   *       here\n   *   <li>nested:\n   *       <ol>\n   *         <li>inner\n   *       </ol>\n   * </ul>\n   *\n   * After {@link Map#get(Object) the {nested} braces} and <code>x  y\n   * z</code> plus { lone } and {@code a}.\n   *\n   * <pre>{@code\n   * int a = 1;\n   *   int b;\n   * }</pre>\n   *\n   * <pre>{@code\n   * tail();\n   * }</pre>\n   *\n   * <pre>{@code}</pre>\n   *\n   * <pre>{@code\n   *   x\n   * } more\n   * </pre>\n   *\n   * <pre>\n   *   plain <code>c</code> d\n   * </pre>\n   *\n   * @param a uses\n   *     <ul>\n   *       <li>one\n   *     </ul>\n   */\n  void f(int a) {}\n\n  /** Unbalanced <pre> then @return x */\n  int g() {\n    return 0;\n  }\n\n  /**\n   *   Open {@code\n   * @return x}\n   */\n  int h() {\n    return 0;\n  }\n}\n";
+        let expected = "class B {\n  /**\n   * Outer:\n   *\n   * <ul>\n   *   <li>first item text that is long enough to wrap past the line limit of one hundred columns\n   *       here\n   *   <li>nested:\n   *       <ol>\n   *         <li>inner\n   *       </ol>\n   * </ul>\n   *\n   * After {@link Map#get(Object) the {nested} braces} and <code>x  y\n   * z</code> plus { lone } and {@code a}. See {@link a {@snippet b} c} and a break<br clear=\"all\">\n   * here.\n   *\n   * <pre>{@code\n   * int a = 1;\n   *   int b;\n   * }</pre>\n   *\n   * <pre>{@code\n   * tail();\n   * }</pre>\n   *\n   * <pre>{@code}</pre>\n   *\n   * <pre>{@code\n   *   x\n   * } more\n   * </pre>\n   *\n   * <pre>\n   *   plain <code>c</code> d\n   * </pre>\n   *\n   * @param a uses\n   *     <ul>\n   *       <li>one\n   *     </ul>\n   */\n  void f(int a) {}\n\n  /** Unbalanced <pre> then @return x */\n  int g() {\n    return 0;\n  }\n\n  /**\n   *   Open {@code\n   * @return x}\n   */\n  int h() {\n    return 0;\n  }\n}\n";
         assert_eq!(formatted, Some(Ok(expected.to_owned())));
     }
 
@@ -711,9 +746,7 @@ mod tests {
     #[test]
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
-            "/** <table></table> */\nclass A {}\n",
             "import org.jspecify.annotations.Nullable;\nclass A { @Nullable Object f() { return null; } }\n",
-            "/** {@snippet :\n * a();\n * } */\nclass A {}\n",
             "/// doc\nclass A {}\n",
             "record R(int x) {}\n",
             "class A { boolean f(Object o) { return o instanceof String s; } }\n",

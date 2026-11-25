@@ -1,5 +1,3 @@
-use crate::gjf::Unformatted;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     BeginJavadoc,
@@ -9,6 +7,19 @@ pub enum Kind {
     ListClose,
     ListItemOpen,
     ListItemClose,
+    SnippetBegin,
+    SnippetEnd,
+    TableOpen,
+    TableClose,
+    BlockQuoteOpen,
+    BlockQuoteClose,
+    HeaderOpen,
+    HeaderClose,
+    Br,
+    MoeBegin,
+    MoeEnd,
+    HtmlComment,
+    OptionalLineBreak,
     ParagraphOpen,
     ParagraphClose,
     PreOpen,
@@ -56,9 +67,18 @@ pub const SPACE: fn(char) -> bool = |c| matches!(c, ' ' | '\t' | '\n' | '\u{b}' 
 enum Context {
     Pre,
     Code,
+    Table,
+    Snippet,
     Brace,
     InlineTag,
 }
+
+const PRESERVING: fn(&Context) -> bool = |open| {
+    matches!(
+        open,
+        Context::Pre | Context::Code | Context::Table | Context::Snippet
+    )
+};
 
 fn footer_tag(rest: &str) -> Option<usize> {
     let after = rest.strip_prefix('@')?;
@@ -95,11 +115,8 @@ struct State {
 }
 
 impl State {
-    fn classify(&mut self, rest: &str) -> Result<Option<(Kind, usize)>, Unformatted> {
-        let preserve = self
-            .stack
-            .iter()
-            .any(|open| matches!(open, Context::Pre | Context::Code));
+    fn classify(&mut self, rest: &str) -> Option<(Kind, usize)> {
+        let preserve = self.stack.iter().any(PRESERVING);
         let either = |preserved: Kind, otherwise: Kind| match preserve {
             true => preserved,
             false => otherwise,
@@ -107,103 +124,128 @@ impl State {
         let spaces = rest.len() - rest.trim_start_matches([' ', '\t']).len();
         if rest[spaces..].starts_with('\n') {
             self.since_newline = false;
-            return Ok(Some((
-                either(Kind::ForcedNewline, Kind::Whitespace),
-                spaces + 1,
-            )));
+            return Some((either(Kind::ForcedNewline, Kind::Whitespace), spaces + 1));
         }
         if spaces > 0 {
-            return Ok(Some((either(Kind::Literal, Kind::Whitespace), 1)));
+            return Some((either(Kind::Literal, Kind::Whitespace), 1));
         }
         if let (false, Some(length)) = (self.since_newline, footer_tag(rest)) {
             self.since_newline = true;
-            return Ok(self
+            return self
                 .stack
                 .is_empty()
-                .then_some((Kind::FooterTagStart, length)));
+                .then_some((Kind::FooterTagStart, length));
         }
         self.since_newline = true;
         let braces = self
             .stack
             .iter()
-            .any(|open| matches!(open, Context::InlineTag | Context::Brace));
+            .any(|open| matches!(open, Context::InlineTag | Context::Brace | Context::Snippet));
         let first = rest.chars().next().map_or(0, char::len_utf8);
         let run = rest[first..].trim_start_matches(|c| !" \t\n@<{}*".contains(c));
         let literal = (Kind::Literal, rest.len() - run.len());
-        if rest
+        let snippet = rest
             .strip_prefix("{@snippet")
-            .is_some_and(|tail| !tail.starts_with(WORD))
-        {
-            return Err(Unformatted::Deferred);
+            .filter(|tail| !tail.starts_with(WORD));
+        if snippet.is_some() {
+            let (context, kind) = match braces {
+                true => (Context::Brace, Kind::Literal),
+                false => (Context::Snippet, Kind::SnippetBegin),
+            };
+            self.stack.push(context);
+            return Some((kind, "{@snippet".len()));
         }
         if let Some(tail) = rest.strip_prefix("{@") {
             self.stack.push(Context::InlineTag);
-            return Ok(Some((
+            return Some((
                 Kind::Literal,
                 2 + tail.len() - tail.trim_start_matches(WORD).len(),
-            )));
+            ));
         }
         if rest.starts_with('{') {
             if braces {
                 self.stack.push(Context::Brace);
             }
-            return Ok(Some((Kind::Literal, 1)));
+            return Some((Kind::Literal, 1));
         }
         if rest.starts_with('}') {
-            self.stack
-                .pop_if(|top| matches!(top, Context::InlineTag | Context::Brace));
-            return Ok(Some((Kind::Literal, 1)));
+            let popped = self.stack.pop_if(|top| {
+                matches!(top, Context::InlineTag | Context::Brace | Context::Snippet)
+            });
+            let kind = match popped {
+                Some(Context::Snippet) => Kind::SnippetEnd,
+                Some(_) | None => Kind::Literal,
+            };
+            return Some((kind, 1));
         }
-        if self.stack.contains(&Context::InlineTag) {
-            return Ok(Some(literal));
+        if self
+            .stack
+            .iter()
+            .any(|open| matches!(open, Context::InlineTag | Context::Snippet))
+        {
+            return Some(literal);
         }
         let scoped = [
             ("pre", Context::Pre, Kind::PreOpen, Kind::PreClose),
             ("code", Context::Code, Kind::CodeOpen, Kind::CodeClose),
+            ("table", Context::Table, Kind::TableOpen, Kind::TableClose),
         ];
         for (name, context, open, close) in scoped {
             if let Some(length) = tag(rest, "<", &[name]) {
                 self.stack.push(context);
-                return Ok(Some((either(Kind::Literal, open), length)));
+                return Some((either(Kind::Literal, open), length));
             }
             if let Some(length) = tag(rest, "</", &[name]) {
                 if let Some(index) = self.stack.iter().rposition(|open| *open == context) {
                     self.stack.truncate(index);
                 }
-                let preserving = self
-                    .stack
-                    .iter()
-                    .any(|open| matches!(open, Context::Pre | Context::Code));
-                let kind = match preserving {
+                let kind = match self.stack.iter().any(PRESERVING) {
                     true => Kind::Literal,
                     false => close,
                 };
-                return Ok(Some((kind, length)));
+                return Some((kind, length));
             }
         }
         if preserve {
-            return Ok(Some(literal));
+            return Some(literal);
         }
-        let plain: [(&str, &[&str], Kind); 6] = [
+        let headers: &[&str] = &["h1", "h2", "h3", "h4", "h5", "h6"];
+        let plain: [(&str, &[&str], Kind); 11] = [
             ("<", &["p"], Kind::ParagraphOpen),
             ("</", &["p"], Kind::ParagraphClose),
             ("<", &["ul", "ol", "dl"], Kind::ListOpen),
             ("</", &["ul", "ol", "dl"], Kind::ListClose),
             ("<", &["li", "dt", "dd"], Kind::ListItemOpen),
             ("</", &["li", "dt", "dd"], Kind::ListItemClose),
+            ("<", &["blockquote"], Kind::BlockQuoteOpen),
+            ("</", &["blockquote"], Kind::BlockQuoteClose),
+            ("<", headers, Kind::HeaderOpen),
+            ("</", headers, Kind::HeaderClose),
+            ("<", &["br"], Kind::Br),
         ];
-        let matched = plain.iter().find_map(|(opening, names, kind)| {
-            tag(rest, opening, names).map(|length| (*kind, length))
-        });
-        match (matched, rest.starts_with('<')) {
-            (Some(matched), _) => Ok(Some(matched)),
-            (None, true) => Err(Unformatted::Deferred),
-            (None, false) => Ok(Some(literal)),
-        }
+        let moe = |marker: &str| {
+            let after = rest.strip_prefix("<!--")?;
+            let inner = after.trim_start_matches(SPACE).strip_prefix(marker)?;
+            let tail = inner.trim_start_matches(SPACE).strip_prefix("-->")?;
+            Some(rest.len() - tail.len())
+        };
+        let comment = rest
+            .strip_prefix("<!--")
+            .and_then(|after| after.find("-->"))
+            .map(|end| "<!--".len() + end + "-->".len());
+        plain
+            .iter()
+            .find_map(|(opening, names, kind)| {
+                tag(rest, opening, names).map(|length| (*kind, length))
+            })
+            .or_else(|| moe("MOE:begin_intracomment_strip").map(|length| (Kind::MoeBegin, length)))
+            .or_else(|| moe("MOE:end_intracomment_strip").map(|length| (Kind::MoeEnd, length)))
+            .or_else(|| comment.map(|length| (Kind::HtmlComment, length)))
+            .or(Some(literal))
     }
 }
 
-pub fn lex(text: &str) -> Result<Option<Vec<Token>>, Unformatted> {
+pub fn lex(text: &str) -> Option<Vec<Token>> {
     let mut state = State {
         tokens: vec![Token::from((Kind::BeginJavadoc, "/**"))],
         stack: Vec::new(),
@@ -211,19 +253,18 @@ pub fn lex(text: &str) -> Result<Option<Vec<Token>>, Unformatted> {
     };
     let mut rest = text;
     while !rest.is_empty() {
-        let Some((kind, length)) = state.classify(rest)? else {
-            return Ok(None);
-        };
+        let (kind, length) = state.classify(rest)?;
         state.tokens.push(Token::from((kind, &rest[..length])));
         rest = &rest[length..];
     }
     if !state.stack.is_empty() {
-        return Ok(None);
+        return None;
     }
     state.tokens.push(Token::from((Kind::EndJavadoc, "*/")));
     let joined = join_literals(state.tokens);
     let paragraphs = infer_paragraphs(joined);
-    Ok(Some(deindent_pre_code(paragraphs)))
+    let linked = optionalize_after_links(paragraphs);
+    Some(deindent_pre_code(linked))
 }
 
 type Tokens = std::iter::Peekable<std::vec::IntoIter<Token>>;
@@ -291,6 +332,19 @@ fn join_literals(input: Vec<Token>) -> Vec<Token> {
             | Kind::PreClose
             | Kind::CodeOpen
             | Kind::CodeClose
+            | Kind::SnippetBegin
+            | Kind::SnippetEnd
+            | Kind::TableOpen
+            | Kind::TableClose
+            | Kind::BlockQuoteOpen
+            | Kind::BlockQuoteClose
+            | Kind::HeaderOpen
+            | Kind::HeaderClose
+            | Kind::Br
+            | Kind::MoeBegin
+            | Kind::MoeEnd
+            | Kind::HtmlComment
+            | Kind::OptionalLineBreak
             | Kind::ForcedNewline => output.extend(tokens.next()),
         }
     }
@@ -315,6 +369,29 @@ fn infer_paragraphs(input: Vec<Token>) -> Vec<Token> {
                 output.push(Token::from((Kind::ParagraphOpen, "<p>")));
             }
         }
+    }
+    output
+}
+
+fn optionalize_after_links(input: Vec<Token>) -> Vec<Token> {
+    let mut tokens = input.into_iter().peekable();
+    let mut output = Vec::new();
+    while let Some(next) = tokens.next() {
+        let link = next.kind == Kind::Literal
+            && next
+                .value
+                .strip_prefix("href=")
+                .and_then(|tail| tail.strip_suffix('>'))
+                .is_some_and(|inner| !inner.contains('>'));
+        output.push(next);
+        let whitespace = link
+            .then(|| tokens.next_if(|after| after.kind == Kind::Whitespace))
+            .flatten();
+        output.extend(
+            whitespace.map(|whitespace| {
+                Token::from((Kind::OptionalLineBreak, whitespace.value.as_str()))
+            }),
+        );
     }
     output
 }
