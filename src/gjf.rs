@@ -104,12 +104,6 @@ fn format_cleaned(source: &str, unit: &Unit) -> Result<String, Unformatted> {
         .tokens
         .iter()
         .flat_map(|token| token.before.iter().chain(&token.after));
-    let markdown = comments
-        .clone()
-        .any(|tok| tok.text.starts_with("///") && !tok.text.starts_with("////"));
-    if markdown {
-        return Err(Unformatted::Deferred);
-    }
     let javadocs: HashMap<&str, Vec<javadoc::lexer::Token>> = comments
         .filter(|tok| matches!(tok.kind, TokKind::Comment(CommentKind::Doc, _)))
         .map(|tok| {
@@ -126,14 +120,26 @@ fn format_cleaned(source: &str, unit: &Unit) -> Result<String, Unformatted> {
         hug_points: std::collections::HashMap::new(),
         not_huggable: std::collections::HashSet::new(),
         type_annotations: std::collections::HashSet::new(),
+        markdown_positions: std::collections::HashSet::new(),
     };
     visitor.compilation_unit(&tree)?;
     let (doc, blank_lines) = visitor.builder.build()?;
-    let rewrite = |text: &str, max_width: usize, column: usize| {
+    let markdown = visitor.markdown_positions;
+    let rewrite = |text: &str, position: usize, max_width: usize, column: usize| {
         let formatted = javadocs
             .get(text)
             .map(|tokens| javadoc::writer::render(tokens, column, max_width));
-        comments::rewrite(formatted.as_deref().unwrap_or(text), max_width, column)
+        match markdown.contains(&position) {
+            true => text
+                .split('\n')
+                .map(|line| {
+                    line.trim_matches(char::is_whitespace)
+                        .trim_matches(|c: char| c <= ' ')
+                })
+                .collect::<Vec<_>>()
+                .join(&format!("\n{}", " ".repeat(column))),
+            false => comments::rewrite(formatted.as_deref().unwrap_or(text), max_width, column),
+        }
     };
     let layout = doc::solve(&doc, 100, &rewrite);
     let mut output = JavaOutput {
@@ -511,6 +517,14 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/imports-javadoc-use/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-bare/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-bare/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-short/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-short/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
@@ -680,6 +694,17 @@ mod tests {
         let formatted = unit.map(|unit| format(input, &unit));
 
         let expected = "class B {\n  /**\n   * Outer:\n   *\n   * <ul>\n   *   <li>first item text that is long enough to wrap past the line limit of one hundred columns\n   *       here\n   *   <li>nested:\n   *       <ol>\n   *         <li>inner\n   *       </ol>\n   * </ul>\n   *\n   * After {@link Map#get(Object) the {nested} braces} and <code>x  y\n   * z</code> plus { lone } and {@code a}.\n   *\n   * <pre>{@code\n   * int a = 1;\n   *   int b;\n   * }</pre>\n   *\n   * <pre>{@code\n   * tail();\n   * }</pre>\n   *\n   * <pre>{@code}</pre>\n   *\n   * <pre>{@code\n   *   x\n   * } more\n   * </pre>\n   *\n   * <pre>\n   *   plain <code>c</code> d\n   * </pre>\n   *\n   * @param a uses\n   *     <ul>\n   *       <li>one\n   *     </ul>\n   */\n  void f(int a) {}\n\n  /** Unbalanced <pre> then @return x */\n  int g() {\n    return 0;\n  }\n\n  /**\n   *   Open {@code\n   * @return x}\n   */\n  int h() {\n    return 0;\n  }\n}\n";
+        assert_eq!(formatted, Some(Ok(expected.to_owned())));
+    }
+
+    #[test]
+    fn when_format_with_slash_slash_slash_comments_then_returns_the_oracle_output() {
+        let input = "class A {\n  void f() {\n    g(); ///\n    g(); //w\n    g(); ///ab\n    g(); ////ab\n    ///one\n    ///two\n    g();\n///three\n///four\n    g();\n    ///x\n    int a = 1;\n    /// local doc\n    int b = 2;\n  }\n\n  ///y\n  int c, d;\n\n  /// many doc\n  int e, f;\n\n  int x; ///w\n  int y;\n\n  ///x\n  int z;\n\n  ////long four slashes at a declaration\n  void h() {}\n}\n";
+        let unit = parser::parse(input).ok();
+
+        let formatted = unit.map(|unit| format(input, &unit));
+
+        let expected = "class A {\n  void f() {\n    g(); ///\n    g(); // w\n    g();\n    /// ab\n    g(); //// ab\n         /// one\n         /// two\n    g();\n    /// three\n    /// four\n    g();\n    /// x\n    int a = 1;\n    /// local doc\n    int b = 2;\n  }\n\n  /// y\n  int c, d;\n\n  /// many doc\n  int e, f;\n\n  int x; // /w\n  int y;\n\n  ///x\n  int z;\n\n  ////long four slashes at a declaration\n  void h() {}\n}\n";
         assert_eq!(formatted, Some(Ok(expected.to_owned())));
     }
 

@@ -55,7 +55,41 @@ enum Piece {
     Comment(CommentKind),
 }
 
+fn markdown_lines(text: &str, tokens: &[LexToken]) -> Vec<LexToken> {
+    let markdown = |token: &LexToken| {
+        token.kind == TokenKind::LineComment && text[token.start..token.end].starts_with("///")
+    };
+    let mut merged: Vec<LexToken> = Vec::new();
+    for token in tokens {
+        let keep = match merged.as_slice() {
+            [.., comment, newline, space]
+                if markdown(comment)
+                    && newline.kind == TokenKind::Newline
+                    && space.kind == TokenKind::Whitespace =>
+            {
+                Some(merged.len() - 2)
+            }
+            [.., comment, newline] if markdown(comment) && newline.kind == TokenKind::Newline => {
+                Some(merged.len() - 1)
+            }
+            _ => None,
+        };
+        match keep.filter(|_| markdown(token)) {
+            Some(keep) => {
+                merged.truncate(keep);
+                merged
+                    .last_mut()
+                    .into_iter()
+                    .for_each(|comment| comment.end = token.end);
+            }
+            None => merged.push(*token),
+        }
+    }
+    merged
+}
+
 pub fn toks(text: &str, tokens: &[LexToken]) -> Vec<Tok> {
+    let tokens = &markdown_lines(text, tokens);
     let utf16 = |s: &str| s.encode_utf16().count();
     let characters = |original: &str, start: usize| -> Vec<(String, usize, Piece)> {
         let mut pieces = Vec::new();

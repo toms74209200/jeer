@@ -1,5 +1,6 @@
 use super::super::builder::{Op, Unformatted};
 use super::super::doc::{BreakMode, Indent};
+use super::super::input::{CommentKind, TokKind};
 use super::super::output::BlankLine;
 use super::statements::Collapse;
 use super::{
@@ -59,6 +60,7 @@ fn declarator(node: &Node) -> Result<Declarator<'_>, Unformatted> {
 
 impl<'a> Visitor<'a> {
     pub fn compilation_unit(&mut self, unit: &'a Node) -> Result<(), Unformatted> {
+        self.markdown_javadoc(unit)?;
         let implicit = unit.children.iter().any(|child| {
             matches!(
                 child,
@@ -181,6 +183,40 @@ impl<'a> Visitor<'a> {
             self.builder.add(FORCED)?;
         }
         Ok(())
+    }
+
+    fn markdown_javadoc(&mut self, node: &Node) -> Result<(), Unformatted> {
+        let mut pending: Vec<&Element> = node.children.iter().rev().collect();
+        let mut start = None;
+        while let (None, Some(element)) = (start, pending.pop()) {
+            match element {
+                Element::Token(token) => start = Some(token.start),
+                Element::Node(child) => pending.extend(child.children.iter().rev()),
+            }
+        }
+        let tokens = &self.builder.input.tokens;
+        let javadoc = start
+            .and_then(|start| {
+                let index = tokens.partition_point(|token| token.tok.position < start);
+                tokens
+                    .get(index)
+                    .filter(|token| token.tok.position == start)
+            })
+            .and_then(|token| {
+                token
+                    .before
+                    .iter()
+                    .rev()
+                    .find(|tok| tok.text.starts_with("/**") || tok.text.starts_with("///"))
+            });
+        match javadoc.map(|tok| (tok.kind, tok.position)) {
+            Some((TokKind::Comment(CommentKind::MarkdownDoc, _), _)) => Err(Unformatted::Deferred),
+            Some((TokKind::Comment(CommentKind::Line, _), position)) => {
+                self.markdown_positions.insert(position);
+                Ok(())
+            }
+            Some(_) | None => Ok(()),
+        }
     }
 
     pub(super) fn modifiers(
@@ -390,6 +426,7 @@ impl<'a> Visitor<'a> {
     }
 
     pub(super) fn class_declaration(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        self.markdown_javadoc(node)?;
         let [
             Element::Node(modifiers),
             Element::Token(keyword),
@@ -634,6 +671,7 @@ impl<'a> Visitor<'a> {
     }
 
     pub(super) fn enum_declaration(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        self.markdown_javadoc(node)?;
         let [
             Element::Node(modifiers),
             Element::Token(keyword),
@@ -754,6 +792,7 @@ impl<'a> Visitor<'a> {
     }
 
     fn enum_constant(&mut self, constant: &'a Node) -> Result<(), Unformatted> {
+        self.markdown_javadoc(constant)?;
         let [Element::Node(modifiers), Element::Token(name), rest @ ..] =
             constant.children.as_slice()
         else {
@@ -800,6 +839,7 @@ impl<'a> Visitor<'a> {
     }
 
     pub(super) fn annotation_type(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        self.markdown_javadoc(node)?;
         let [
             Element::Node(modifiers),
             Element::Token(at),
@@ -823,6 +863,7 @@ impl<'a> Visitor<'a> {
     }
 
     pub(super) fn method(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        self.markdown_javadoc(node)?;
         let [Element::Node(modifiers), rest @ ..] = node.children.as_slice() else {
             return Err(Unformatted::Deferred);
         };
@@ -1061,6 +1102,9 @@ impl<'a> Visitor<'a> {
         let [declared @ .., Element::Token(semicolon)] = node.children.as_slice() else {
             return Err(Unformatted::Deferred);
         };
+        if let (Declaration::Field, [_, _, Element::Node(_)]) = (&declaration, declared) {
+            self.markdown_javadoc(node)?;
+        }
         self.variable_list(node, declared, semicolon, declaration, direction)
     }
 

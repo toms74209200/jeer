@@ -64,6 +64,7 @@ pub struct Visitor<'a> {
     pub hug_points: std::collections::HashMap<usize, super::doc::HugPoint>,
     pub not_huggable: std::collections::HashSet<usize>,
     pub type_annotations: std::collections::HashSet<String>,
+    pub markdown_positions: std::collections::HashSet<usize>,
 }
 
 impl<'a> Visitor<'a> {

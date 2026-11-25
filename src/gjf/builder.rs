@@ -446,9 +446,11 @@ impl<'a> Builder<'a> {
                 }
                 Event::Tok(tok) => {
                     let range = tok.index().map(|index| (index, index + 1));
-                    levels[append]
-                        .items
-                        .push(Item::Doc(Doc::comment(&tok.text, range)));
+                    levels[append].items.push(Item::Doc(Doc::comment(
+                        &tok.text,
+                        tok.position,
+                        range,
+                    )));
                 }
                 Event::Space => levels[append].items.push(Item::Doc(Doc::Space)),
                 Event::HugPoint(point) => levels[append].items.push(Item::Doc(Doc::Marker(point))),
@@ -648,7 +650,10 @@ mod tests {
                 .and_then(|()| builder.build());
 
             let rendered = built.map(|(doc, blank_lines)| {
-                let layout = doc::solve(&doc, 100, &comments::rewrite);
+                let rewrite = |text: &str, _: usize, max_width: usize, column: usize| {
+                    comments::rewrite(text, max_width, column)
+                };
+                let layout = doc::solve(&doc, 100, &rewrite);
                 let mut output = JavaOutput {
                     input_lines: input.line_ranges.clone(),
                     blank_lines,
