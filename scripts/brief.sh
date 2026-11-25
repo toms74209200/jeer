@@ -4,7 +4,7 @@ set -u
 [ $# -ge 1 ] || { echo "usage: brief.sh <command> [args...]" >&2; exit 2; }
 log=$(mktemp) || exit 2
 trap 'rm -f "$log"' EXIT
-"$@" >"$log" 2>&1
+BRIEF=1 "$@" >"$log" 2>&1
 status=$?
 limit=30
 lines=$(wc -l <"$log")

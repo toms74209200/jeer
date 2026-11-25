@@ -1,0 +1,2 @@
+command = "scripts/brief.sh scripts/check-compiles.sh"
+size = "small"

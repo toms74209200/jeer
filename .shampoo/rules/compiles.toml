@@ -1,0 +1,5 @@
+rule = "The crate and its tests compile (cargo check --all-targets); this rule reports the errors, while lint and branching-results, run through scripts/brief.sh, fail on a broken build with one line pointing here (docs/development.md §8.1)."
+check = "compiles"
+transitions = ["edit", "task", "pr"]
+paths = ["scripts/brief.sh", "**.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "scripts/check-compiles.sh"]
+judge = { exit = { 1 = "task-failure", other = "workflow-failure" } }

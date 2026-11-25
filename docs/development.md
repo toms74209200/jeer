@@ -162,6 +162,7 @@ Every check is a script under `scripts/`; shampoo calls it through `scripts/brie
 
 | Script | Size | Checks |
 |---|---|---|
+| `scripts/check-compiles.sh` | Small | The crate and its tests compile (`cargo check --all-targets`), errors in short form. Run through `brief.sh` (which sets `BRIEF=1`, as shampoo runs every check), `lint.sh` and `check-branching-results.sh` fail on a broken build with one line pointing here instead of repeating the compiler errors; called directly, as CI calls them, they print the errors themselves. `test-small.sh` is not gated, since its judges read its output |
 | `scripts/lint.sh` | Small | rustfmt and clippy with the lints of `Cargo.toml`, warnings denied; writes `#[expect]` exceptions to `out/exceptions/lint.txt` |
 | `scripts/check-sg.sh <rule>` | Small | The ast-grep rules of §3 in `sg/rules/`: comments, single-expression functions, test names, test helpers, exceptions |
 | `scripts/check-branching-results.sh` | Small | The dylint lint of §3 in `tools/branching-results/` (pinned nightly and dylint in `scripts/dylint.sh`): results callers branch on |
