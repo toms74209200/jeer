@@ -26,6 +26,8 @@ struct Writer {
     at_start_of_line: bool,
     requested: Requested,
     wrote_anything_significant: bool,
+    moe_begin: Option<String>,
+    moe_end_indent: String,
 }
 
 impl Writer {
@@ -38,25 +40,32 @@ impl Writer {
         self.at_start_of_line = true;
     }
 
-    fn newline(&mut self) {
-        self.line_start();
+    fn inner_indent(&self) -> String {
         let footer = match self.continuing_footer_tag {
             true => 4,
             false => 0,
         };
-        let indent: usize = self
+        let indents: usize = self
             .indents
             .iter()
             .map(|indent| match indent {
                 Indent::List(width) | Indent::ListItem(width) => *width,
             })
-            .sum::<usize>()
-            + footer;
-        self.output.push_str(&" ".repeat(indent));
-        self.remaining_on_line -= indent.cast_signed();
+            .sum();
+        " ".repeat(indents + footer)
+    }
+
+    fn newline(&mut self) {
+        self.line_start();
+        let indent = self.inner_indent();
+        self.output.push_str(&indent);
+        self.remaining_on_line -= indent.len().cast_signed();
     }
 
     fn flush_whitespace(&mut self) {
+        if self.moe_begin.is_some() {
+            self.requested = self.requested.max(Requested::Newline);
+        }
         let significant = match self.wrote_anything_significant {
             true => self.requested,
             false => Requested::None,
@@ -94,8 +103,19 @@ impl Writer {
             self.output.push(' ');
             self.remaining_on_line -= 1;
         }
+        if let Some(moe) = self.moe_begin.take() {
+            self.output.push_str(&moe);
+            self.moe_end_indent = self.inner_indent();
+            self.wrote_anything_significant = true;
+            self.requested = self.requested.max(Requested::Newline);
+            self.write_token(token);
+            return;
+        }
         self.output.push_str(&token.value);
-        self.at_start_of_line &= matches!(token.kind, Kind::ParagraphOpen | Kind::ListItemOpen);
+        self.at_start_of_line &= matches!(
+            token.kind,
+            Kind::ParagraphOpen | Kind::ListItemOpen | Kind::HeaderOpen | Kind::BlockQuoteOpen
+        );
         self.remaining_on_line -= length;
         self.requested = Requested::None;
         self.wrote_anything_significant = true;
@@ -115,11 +135,74 @@ pub fn render(tokens: &[Token], block_indent: usize, max_line_length: usize) -> 
         at_start_of_line: false,
         requested: Requested::None,
         wrote_anything_significant: false,
+        moe_begin: None,
+        moe_end_indent: String::new(),
+    };
+    let simple = |value: &str| {
+        value
+            .strip_prefix('<')
+            .and_then(|tail| {
+                let name = tail.trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '_');
+                let rest = name.trim_start_matches(SPACE);
+                let rest = rest.strip_prefix('/').unwrap_or(rest);
+                (name.len() < tail.len()).then_some(rest.trim_start_matches(SPACE) == ">")
+            })
+            .unwrap_or(false)
     };
     writer.newline();
     for token in tokens {
         match token.kind {
-            Kind::BeginJavadoc | Kind::ParagraphClose | Kind::ListItemClose => {}
+            Kind::BeginJavadoc
+            | Kind::ParagraphClose
+            | Kind::ListItemClose
+            | Kind::OptionalLineBreak => {}
+            Kind::SnippetBegin | Kind::HeaderOpen | Kind::TableOpen => {
+                writer.requested = writer.requested.max(Requested::BlankLine);
+                writer.write_token(token);
+            }
+            Kind::SnippetEnd | Kind::HeaderClose | Kind::TableClose => {
+                writer.write_token(token);
+                writer.requested = writer.requested.max(Requested::BlankLine);
+            }
+            Kind::BlockQuoteOpen => {
+                writer.requested = writer.requested.max(Requested::BlankLine);
+                writer.write_token(token);
+                writer.requested = writer.requested.max(Requested::Newline);
+            }
+            Kind::BlockQuoteClose => {
+                writer.requested = writer.requested.max(Requested::Newline);
+                writer.write_token(token);
+                writer.requested = writer.requested.max(Requested::BlankLine);
+            }
+            Kind::Br => {
+                let standard = Token::from((Kind::Br, "<br>"));
+                match simple(&token.value) {
+                    true => writer.write_token(&standard),
+                    false => writer.write_token(token),
+                }
+                writer.requested = writer.requested.max(Requested::Newline);
+            }
+            Kind::MoeBegin => writer.moe_begin = Some(token.value.clone()),
+            Kind::MoeEnd => {
+                writer.requested = Requested::None;
+                writer.line_start();
+                let indent = writer.moe_end_indent.clone();
+                writer.output.push_str(&indent);
+                writer.write_token(token);
+                writer.requested = writer.requested.max(Requested::Newline);
+            }
+            Kind::HtmlComment => {
+                writer.requested = writer.requested.max(Requested::Newline);
+                let mut lines = token.value.lines();
+                let first = lines.next().unwrap_or_default();
+                writer.write_token(&Token::from((Kind::HtmlComment, first)));
+                for line in lines {
+                    writer.line_start();
+                    writer.output.push_str(line);
+                    writer.remaining_on_line -= line.encode_utf16().count().cast_signed();
+                }
+                writer.requested = writer.requested.max(Requested::Newline);
+            }
             Kind::EndJavadoc => {
                 writer.output.push('\n');
                 writer.output.push_str(&" ".repeat(block_indent + 1));
@@ -177,17 +260,10 @@ pub fn render(tokens: &[Token], block_indent: usize, max_line_length: usize) -> 
             }
             Kind::ParagraphOpen if writer.wrote_anything_significant => {
                 writer.requested = writer.requested.max(Requested::BlankLine);
-                let simple = token.value.strip_prefix('<').and_then(|tail| {
-                    let name =
-                        tail.trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '_');
-                    let rest = name.trim_start_matches(SPACE);
-                    let rest = rest.strip_prefix('/').unwrap_or(rest);
-                    (name.len() < tail.len()).then_some(rest.trim_start_matches(SPACE) == ">")
-                });
                 let standard = Token::from((Kind::ParagraphOpen, "<p>"));
-                match simple {
-                    Some(true) => writer.write_token(&standard),
-                    Some(false) | None => writer.write_token(token),
+                match simple(&token.value) {
+                    true => writer.write_token(&standard),
+                    false => writer.write_token(token),
                 }
             }
             Kind::ParagraphOpen => {}
