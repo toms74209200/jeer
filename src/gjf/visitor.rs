@@ -313,9 +313,11 @@ impl<'a> Visitor<'a> {
             NodeKind::NewClass => self.new_class(node),
             NodeKind::NewArray => self.new_array(node),
             NodeKind::MethodReference => self.method_reference(node),
-            NodeKind::SwitchStmt => self.switch_statement(node),
+            NodeKind::SwitchStmt | NodeKind::SwitchExpr => self.switch_statement(node),
+            NodeKind::TypePattern => self.type_pattern(node),
+            NodeKind::RecordPattern => self.record_pattern(node),
             NodeKind::AssertStmt => self.assert_statement(node),
-            NodeKind::ThrowStmt => self.throw_statement(node),
+            NodeKind::ThrowStmt | NodeKind::YieldStmt => self.throw_statement(node),
             NodeKind::SynchronizedStmt => self.synchronized_statement(node),
             NodeKind::LabeledStmt => self.labeled_statement(node),
             NodeKind::BreakStmt | NodeKind::ContinueStmt => self.jump_statement(node),
@@ -332,11 +334,15 @@ impl<'a> Visitor<'a> {
             NodeKind::ArrayInitializer | NodeKind::ElementValueArray => {
                 self.array_initializer(node, None)
             }
-            NodeKind::Literal | NodeKind::Name | NodeKind::PrimitiveType | NodeKind::VoidType => {
-                match node.children.as_slice() {
-                    [Element::Token(token)] => self.token(token, ZERO, None),
-                    _ => Err(Unformatted::Deferred),
-                }
+            NodeKind::Literal
+            | NodeKind::Name
+            | NodeKind::PrimitiveType
+            | NodeKind::VoidType
+            | NodeKind::MatchAllPattern => {
+                let [Element::Token(token)] = node.children.as_slice() else {
+                    return Err(Unformatted::Deferred);
+                };
+                self.token(token, ZERO, None)
             }
             NodeKind::This | NodeKind::Super => match node.children.as_slice() {
                 [Element::Token(token)] => self.token(token, ZERO, None),
@@ -478,13 +484,8 @@ impl<'a> Visitor<'a> {
             | NodeKind::SwitchGroup
             | NodeKind::SwitchLabel
             | NodeKind::Guard
-            | NodeKind::YieldStmt
             | NodeKind::Arguments
-            | NodeKind::LambdaParameters
-            | NodeKind::SwitchExpr
-            | NodeKind::TypePattern
-            | NodeKind::RecordPattern
-            | NodeKind::MatchAllPattern => Err(Unformatted::Deferred),
+            | NodeKind::LambdaParameters => Err(Unformatted::Deferred),
         }
     }
 }

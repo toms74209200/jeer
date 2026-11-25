@@ -4,8 +4,8 @@ use super::super::output::BlankLine;
 use super::declarations::{Declaration, field_annotation_direction};
 use super::statements::Collapse;
 use super::{
-    BREAK, CLOSE, FILL, FILL_SPACE, FORCED, MINUS_TWO, OPEN_PLUS_FOUR, OPEN_PLUS_TWO, OPEN_ZERO,
-    PLUS_FOUR, PLUS_TWO, SPACE, SPACE_BREAK, Visitor, ZERO,
+    BREAK, CLOSE, Direction, FILL, FILL_SPACE, FORCED, MINUS_TWO, OPEN_PLUS_FOUR, OPEN_PLUS_TWO,
+    OPEN_ZERO, PLUS_FOUR, PLUS_TWO, SPACE, SPACE_BREAK, Visitor, ZERO,
 };
 use crate::lexer::token::{Punct, Token, TokenKind};
 use crate::parser::syntax::{Element, Node, NodeKind};
@@ -1313,6 +1313,11 @@ impl<'a> Visitor<'a> {
                 Element::Node(modifiers),
                 Element::Node(ty),
             ] if modifiers.children.is_empty() => (expression, keyword, ty),
+            [
+                Element::Node(expression),
+                Element::Token(keyword),
+                Element::Node(pattern),
+            ] => (expression, keyword, pattern),
             _ => return Err(Unformatted::Deferred),
         };
         self.builder.add(OPEN_PLUS_FOUR)?;
@@ -1324,6 +1329,56 @@ impl<'a> Visitor<'a> {
         self.scan(target)?;
         self.builder.add(CLOSE)?;
         self.builder.add(CLOSE)
+    }
+
+    pub(super) fn type_pattern(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [
+            Element::Node(modifiers),
+            Element::Node(ty),
+            Element::Token(name),
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        self.declare_one(
+            Declaration::Parameter,
+            Direction::Horizontal,
+            Some(modifiers),
+            ty,
+            None,
+            name,
+            &[],
+            None,
+            None,
+        )
+    }
+
+    pub(super) fn record_pattern(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        let [
+            Element::Node(_),
+            Element::Node(ty),
+            Element::Token(open),
+            patterns @ ..,
+            Element::Token(close),
+        ] = node.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        self.scan(ty)?;
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        self.token(open, ZERO, None)?;
+        self.builder.add(BREAK)?;
+        for pattern in patterns {
+            match pattern {
+                Element::Token(comma) => {
+                    self.token(comma, ZERO, None)?;
+                    self.builder.add(SPACE_BREAK)?;
+                }
+                Element::Node(pattern) => self.scan(pattern)?,
+            }
+        }
+        self.builder.add(CLOSE)?;
+        self.token(close, ZERO, None)
     }
 
     pub(super) fn conditional(&mut self, node: &'a Node) -> Result<(), Unformatted> {
