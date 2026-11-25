@@ -294,6 +294,7 @@ impl<'a> Visitor<'a> {
                 self.method(node)
             }
             NodeKind::RecordDecl => self.record_declaration(node),
+            NodeKind::ModuleDecl => self.module_declaration(node),
             NodeKind::Initializer => self.initializer(node),
             NodeKind::LocalClassDecl => match node.children.as_slice() {
                 [Element::Node(declaration)] => self.scan(declaration),
@@ -444,7 +445,6 @@ impl<'a> Visitor<'a> {
             NodeKind::CompilationUnit
             | NodeKind::PackageDecl
             | NodeKind::ImportDecl
-            | NodeKind::ModuleDecl
             | NodeKind::ModuleDirective
             | NodeKind::QualifiedName
             | NodeKind::Modifiers
