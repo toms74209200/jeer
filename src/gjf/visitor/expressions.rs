@@ -111,10 +111,13 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    pub(super) fn segments(&self, node: &'a Node) -> Result<Vec<Segment<'a>>, Unformatted> {
+    pub(super) fn segments(
+        &self,
+        children: &'a [Element],
+    ) -> Result<Vec<Segment<'a>>, Unformatted> {
         let mut segments: Vec<Segment<'a>> = Vec::new();
         let mut dot = None;
-        for child in &node.children {
+        for child in children {
             match child {
                 Element::Token(token) if matches!(token.kind, TokenKind::Punct(_)) => {
                     dot = Some(token);
@@ -330,7 +333,7 @@ impl<'a> Visitor<'a> {
                     break None;
                 }
                 (NodeKind::ClassType, _) if indices.is_empty() => {
-                    let segments = self.segments(current)?;
+                    let segments = self.segments(&current.children)?;
                     let split = segments.iter().rposition(|segment| segment.2.is_some());
                     let from = split.map_or(0, |index| index + 1);
                     for &(dot, name, _) in segments[from..].iter().rev() {

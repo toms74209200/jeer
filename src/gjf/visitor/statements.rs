@@ -560,7 +560,11 @@ impl<'a> Visitor<'a> {
             [alternatives @ .., Element::Token(bar), Element::Node(last)] => {
                 self.builder.add(OPEN_ZERO)?;
                 self.builder.add(OPEN_ZERO)?;
-                self.modifiers(modifiers, Direction::Horizontal, None)?;
+                let annotations = self.modifiers(modifiers, Direction::Horizontal, None)?;
+                self.inline_annotations(&annotations)?;
+                if !annotations.is_empty() {
+                    self.builder.add(FILL_SPACE)?;
+                }
                 for alternative in alternatives {
                     match alternative {
                         Element::Token(bar) => {

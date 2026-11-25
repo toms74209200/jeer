@@ -560,6 +560,34 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/javadoc-moe-strip/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/type-use-jspecify-method/input.java"),
+                include_str!("../tests/fixtures/gjf/type-use-jspecify-method/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/type-use-checker-method/input.java"),
+                include_str!("../tests/fixtures/gjf/type-use-checker-method/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/type-use-field/input.java"),
+                include_str!("../tests/fixtures/gjf/type-use-field/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/type-use-local/input.java"),
+                include_str!("../tests/fixtures/gjf/type-use-local/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/type-use-parameter/input.java"),
+                include_str!("../tests/fixtures/gjf/type-use-parameter/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/type-use-type-parameters/input.java"),
+                include_str!("../tests/fixtures/gjf/type-use-type-parameters/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/type-use-other-package/input.java"),
+                include_str!("../tests/fixtures/gjf/type-use-other-package/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
@@ -744,16 +772,26 @@ mod tests {
     }
 
     #[test]
+    fn when_format_with_type_use_annotations_then_returns_the_oracle_output() {
+        let input = "import java.util.Map;\nimport org.jspecify.annotations.NonNull;\nimport org.jspecify.annotations.Nullable;\n\n@Deprecated @Nullable class B {\n  @Nullable @NonNull Object f() { return null; }\n  @Deprecated @Nullable <T> T g() { return null; }\n  @Nullable Object a, b;\n  void p(@Nullable Map<String, Map<String, Map<String, Map<String, String>>>> someLongParameterName) {}\n  @Deprecated @Nullable B() {}\n  @Deprecated @Nullable enum E { X }\n  @Deprecated @Nullable @interface I {}\n  void h() { try { h(); } catch (@Nullable RuntimeException | Error e) {} }\n}\n";
+        let unit = parser::parse(input).ok();
+
+        let formatted = unit.map(|unit| format(input, &unit));
+
+        let expected = "import java.util.Map;\nimport org.jspecify.annotations.NonNull;\nimport org.jspecify.annotations.Nullable;\n\n@Deprecated\n@Nullable\nclass B {\n  @Nullable @NonNull Object f() {\n    return null;\n  }\n\n  @Deprecated\n  @Nullable <T> T g() {\n    return null;\n  }\n\n  @Nullable Object a, b;\n\n  void p(\n      @Nullable Map<String, Map<String, Map<String, Map<String, String>>>> someLongParameterName) {}\n\n  @Deprecated\n  @Nullable\n  B() {}\n\n  @Deprecated\n  @Nullable\n  enum E {\n    X\n  }\n\n  @Deprecated\n  @Nullable\n  @interface I {}\n\n  void h() {\n    try {\n      h();\n    } catch (@Nullable RuntimeException | Error e) {\n    }\n  }\n}\n";
+        assert_eq!(formatted, Some(Ok(expected.to_owned())));
+    }
+
+    #[test]
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
-            "import org.jspecify.annotations.Nullable;\nclass A { @Nullable Object f() { return null; } }\n",
             "/// doc\nclass A {}\n",
             "record R(int x) {}\n",
+            "class A { <T> @B int f() { return 0; } }\n",
             "class A { boolean f(Object o) { return o instanceof String s; } }\n",
             "class A { String s = \"\"\"\n  x\"\"\"; }\n",
             "class A { void f(A this) {} }\n",
             "class A { int @B [] x; }\n",
-            "class A { @B int f() { return 0; } <T> @B T g() { return null; } }\n",
             "module m {}\n",
         ];
         for input in cases {

@@ -17,6 +17,11 @@ pub(super) enum Declaration {
     Parameter,
 }
 
+const NODE: for<'n> fn(&'n Element) -> Option<&'n Node> = |item| match item {
+    Element::Node(node) => Some(node),
+    Element::Token(_) => None,
+};
+
 pub(super) fn field_annotation_direction(modifiers: &Node) -> Direction {
     let vertical = modifiers.children.iter().any(|modifier| {
         matches!(modifier, Element::Node(annotation) if annotation.children.iter().any(|child| {
@@ -219,30 +224,60 @@ impl<'a> Visitor<'a> {
         }
     }
 
+    fn split_modifiers(&self, modifiers: &'a Node) -> (&'a [Element], Vec<&'a Node>) {
+        let items = modifiers.children.as_slice();
+        let suffix = items
+            .iter()
+            .rev()
+            .take_while(|item| {
+                if let Element::Node(annotation) = item
+                    && annotation.kind == NodeKind::Annotation
+                    && let Some(Element::Node(name)) = annotation.children.get(1)
+                    && let [Element::Token(simple)] = name.children.as_slice()
+                {
+                    self.type_annotations
+                        .contains(&self.source[simple.start..simple.end])
+                } else {
+                    false
+                }
+            })
+            .count();
+        let (declaration, annotations) = items.split_at(items.len() - suffix);
+        let annotations = annotations.iter().filter_map(NODE).collect();
+        (declaration, annotations)
+    }
+
+    pub(super) fn inline_annotations(
+        &mut self,
+        annotations: &[&'a Node],
+    ) -> Result<(), Unformatted> {
+        for (index, annotation) in annotations.iter().enumerate() {
+            if index > 0 {
+                self.builder.add(FILL_SPACE)?;
+            }
+            self.annotation(annotation)?;
+        }
+        Ok(())
+    }
+
+    fn vertical_annotations(&mut self, annotations: &[&'a Node]) -> Result<(), Unformatted> {
+        for annotation in annotations {
+            self.builder.add(FORCED)?;
+            self.annotation(annotation)?;
+            self.builder.add(FORCED)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn modifiers(
         &mut self,
         modifiers: &'a Node,
         direction: Direction,
         tag: Option<super::super::doc::BreakTag>,
-    ) -> Result<(), Unformatted> {
-        let items = &modifiers.children;
+    ) -> Result<Vec<&'a Node>, Unformatted> {
+        let (items, annotations) = self.split_modifiers(modifiers);
         if items.is_empty() {
-            return Ok(());
-        }
-        let before_last = items
-            .len()
-            .checked_sub(2)
-            .and_then(|index| items.get(index));
-        if let (Direction::Vertical, Some(Element::Node(last)), None | Some(Element::Node(_))) =
-            (direction, items.last(), before_last)
-            && last.kind == NodeKind::Annotation
-            && let Some(Element::Node(name)) = last.children.get(1)
-            && let [Element::Token(simple)] = name.children.as_slice()
-            && self
-                .type_annotations
-                .contains(&self.source[simple.start..simple.end])
-        {
-            return Err(Unformatted::Deferred);
+            return Ok(annotations);
         }
         let separator = match direction {
             Direction::Vertical => Op::Break {
@@ -269,7 +304,8 @@ impl<'a> Visitor<'a> {
         }
         self.builder.add(CLOSE)?;
         if index == items.len() {
-            return self.builder.add(separator);
+            self.builder.add(separator)?;
+            return Ok(annotations);
         }
         if index > 0 {
             self.builder.add(separator)?;
@@ -306,7 +342,8 @@ impl<'a> Visitor<'a> {
         self.builder.add(CLOSE)?;
         self.builder.add(OPEN_ZERO)?;
         self.builder.add(FILL_SPACE)?;
-        self.builder.add(CLOSE)
+        self.builder.add(CLOSE)?;
+        Ok(annotations)
     }
 
     pub(super) fn annotation(&mut self, annotation: &'a Node) -> Result<(), Unformatted> {
@@ -448,7 +485,8 @@ impl<'a> Visitor<'a> {
             true => (None, extends),
             false => (extends, implements),
         };
-        self.modifiers(modifiers, Direction::Vertical, None)?;
+        let annotations = self.modifiers(modifiers, Direction::Vertical, None)?;
+        self.vertical_annotations(&annotations)?;
         self.token(keyword, ZERO, None)?;
         self.builder.add(SPACE)?;
         self.token(name, ZERO, None)?;
@@ -710,7 +748,8 @@ impl<'a> Visitor<'a> {
             }
         }
         self.builder.add(OPEN_ZERO)?;
-        self.modifiers(modifiers, Direction::Vertical, None)?;
+        let annotations = self.modifiers(modifiers, Direction::Vertical, None)?;
+        self.vertical_annotations(&annotations)?;
         self.builder.add(OPEN_PLUS_FOUR)?;
         self.token(keyword, ZERO, None)?;
         self.builder.add(SPACE_BREAK)?;
@@ -851,7 +890,8 @@ impl<'a> Visitor<'a> {
             return Err(Unformatted::Deferred);
         };
         self.builder.add(OPEN_ZERO)?;
-        self.modifiers(modifiers, Direction::Vertical, None)?;
+        let annotations = self.modifiers(modifiers, Direction::Vertical, None)?;
+        self.vertical_annotations(&annotations)?;
         self.builder.add(OPEN_ZERO)?;
         self.token(at, ZERO, None)?;
         self.token(keyword, ZERO, None)?;
@@ -905,16 +945,49 @@ impl<'a> Visitor<'a> {
         else {
             return Err(Unformatted::Deferred);
         };
-        self.modifiers(modifiers, Direction::Vertical, None)?;
+        let type_annotations = self.modifiers(modifiers, Direction::Vertical, None)?;
+        let own = return_type.map_or(0, |return_type| {
+            return_type
+                .children
+                .iter()
+                .take_while(|child| {
+                    matches!(
+                        child,
+                        Element::Node(Node {
+                            kind: NodeKind::Annotation,
+                            ..
+                        })
+                    )
+                })
+                .count()
+        });
+        let own_annotations: Vec<&'a Node> = return_type
+            .into_iter()
+            .flat_map(|return_type| &return_type.children[..own])
+            .filter_map(NODE)
+            .collect();
+        let (leading, return_annotations) = match (type_parameters, return_type, own) {
+            (_, None, _) => {
+                self.vertical_annotations(&type_annotations)?;
+                (Vec::new(), Vec::new())
+            }
+            (None, Some(_), _) => (Vec::new(), type_annotations),
+            (Some(_), Some(_), 0) => (type_annotations, Vec::new()),
+            (Some(_), Some(_), _) => (type_annotations, own_annotations),
+        };
         self.builder.add(OPEN_PLUS_FOUR)?;
         let before_name = self.builder.tag();
         let before_type = self.builder.tag();
         self.builder.add(OPEN_ZERO)?;
-        let mut after_first = false;
+        let mut after_first = !leading.is_empty();
+        self.inline_annotations(&leading)?;
         if let Some(type_parameters) = type_parameters {
             let Some(Element::Token(angle)) = type_parameters.children.first() else {
                 return Err(Unformatted::Deferred);
             };
+            if after_first {
+                self.builder.add(FILL_SPACE)?;
+            }
             self.token(angle, ZERO, None)?;
             self.type_parameters_rest(type_parameters, PLUS_FOUR)?;
             after_first = true;
@@ -935,7 +1008,20 @@ impl<'a> Visitor<'a> {
                 Box::new(ZERO),
             )))?;
             self.builder.add(OPEN_ZERO)?;
-            self.typed(return_type)?;
+            if !return_annotations.is_empty() {
+                self.inline_annotations(&return_annotations)?;
+                self.builder.add(SPACE_BREAK)?;
+            }
+            match (own, return_type.kind) {
+                (0, _) => self.typed(return_type)?,
+                (_, kind) => {
+                    let NodeKind::ClassType = kind else {
+                        return Err(Unformatted::Deferred);
+                    };
+                    let segments = self.segments(&return_type.children[own..])?;
+                    self.parameterized(&segments)?;
+                }
+            }
             self.builder.add(CLOSE)?;
         }
         if after_first {
@@ -1146,7 +1232,11 @@ impl<'a> Visitor<'a> {
             }
             _ => {
                 self.builder.add(OPEN_ZERO)?;
-                self.modifiers(modifiers, direction, None)?;
+                let annotations = self.modifiers(modifiers, direction, None)?;
+                self.inline_annotations(&annotations)?;
+                if !annotations.is_empty() {
+                    self.builder.add(FILL_SPACE)?;
+                }
                 self.builder.add(OPEN_PLUS_FOUR)?;
                 self.builder.add(OPEN_ZERO)?;
                 self.typed(ty)?;
@@ -1213,10 +1303,12 @@ impl<'a> Visitor<'a> {
             self.builder.add(Op::BlankLine(blank_line))?;
         }
         let annotated = modifiers.is_some_and(|modifiers| {
-            modifiers
-                .children
+            self.split_modifiers(modifiers)
+                .0
                 .iter()
-                .any(|child| matches!(child, Element::Node(_)))
+                .filter_map(NODE)
+                .count()
+                > 0
         });
         match (declaration, annotated) {
             (Declaration::Parameter, true) => self.builder.add(OPEN_PLUS_FOUR)?,
@@ -1224,12 +1316,17 @@ impl<'a> Visitor<'a> {
                 self.builder.add(OPEN_ZERO)?;
             }
         }
-        if let Some(modifiers) = modifiers {
-            self.modifiers(modifiers, direction, Some(annotation_break))?;
-        }
+        let annotations = match modifiers {
+            Some(modifiers) => self.modifiers(modifiers, direction, Some(annotation_break))?,
+            None => Vec::new(),
+        };
         self.builder.add(OPEN_PLUS_FOUR)?;
         self.builder.add(OPEN_ZERO)?;
         self.builder.add(OPEN_ZERO)?;
+        self.inline_annotations(&annotations)?;
+        if !annotations.is_empty() {
+            self.builder.add(FILL_SPACE)?;
+        }
         let (base, type_dims) = match ty.kind == NodeKind::ArrayType {
             true => match ty.children.as_slice() {
                 [Element::Node(base), dims @ ..] => (base, dims),

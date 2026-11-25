@@ -297,7 +297,7 @@ impl<'a> Visitor<'a> {
             | NodeKind::ArrayAccess
             | NodeKind::ClassLiteral => self.dot(node),
             NodeKind::ClassType => {
-                let segments = self.segments(node)?;
+                let segments = self.segments(&node.children)?;
                 self.parameterized(&segments)
             }
             NodeKind::ArrayType => {
