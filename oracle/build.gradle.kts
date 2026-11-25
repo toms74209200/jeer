@@ -16,6 +16,7 @@ spotless {
         target(fileTree("work") { include("*.java") })
         when (profile) {
             "gjf" -> googleJavaFormat("2.0.0")
+            "gjf-reflow" -> googleJavaFormat("2.0.0").reflowLongStrings()
             "import-order" -> importOrder()
             "unused-imports" -> removeUnusedImports()
             "toggle" -> {
