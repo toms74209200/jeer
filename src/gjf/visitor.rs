@@ -104,8 +104,54 @@ impl<'a> Visitor<'a> {
                 comments_indent,
                 trailing,
             }),
-            TokenKind::TextBlock
-            | TokenKind::Whitespace
+            TokenKind::TextBlock => {
+                let java = |c: char| {
+                    (c.is_whitespace()
+                        && !matches!(c, '\u{85}' | '\u{a0}' | '\u{2007}' | '\u{202f}'))
+                        || ('\u{1c}'..='\u{1f}').contains(&c)
+                };
+                let initial: Vec<&str> = text.lines().collect();
+                let body = &initial[1..];
+                let blank = |line: &&str| line.chars().all(java);
+                let leading = |line: &&str| line.chars().take_while(|c| java(*c)).count();
+                let outdent = body
+                    .iter()
+                    .filter(|line| !blank(line))
+                    .map(leading)
+                    .fold(usize::MAX, usize::min);
+                let stripped: Vec<String> = body
+                    .iter()
+                    .map(|line| match blank(line) {
+                        true => String::new(),
+                        false => line
+                            .chars()
+                            .skip(outdent)
+                            .collect::<String>()
+                            .trim_end_matches(java)
+                            .to_owned(),
+                    })
+                    .collect();
+                let inner = &stripped[..stripped.len() - 1];
+                let last = stripped[stripped.len() - 1].as_str();
+                let source_last = initial[initial.len() - 1].trim_end_matches(java);
+                if source_last.chars().count() == last.chars().count() {
+                    self.builder.add(Op::Break {
+                        mode: BreakMode::Unified,
+                        flat: "",
+                        plus_indent: Indent::Const(i32::MIN),
+                        tag: None,
+                    })?;
+                }
+                let delimiter = "\"\"\"";
+                let without = last[..last.len() - delimiter.len()].trim_end_matches(java);
+                let lines = std::iter::once(initial[0].trim_end_matches(java).to_owned())
+                    .chain(inner.iter().cloned())
+                    .chain((!without.is_empty()).then(|| format!("{without}\\")))
+                    .chain(std::iter::once(delimiter.to_owned()))
+                    .collect();
+                self.builder.add(Op::Lines { text, lines })
+            }
+            TokenKind::Whitespace
             | TokenKind::Newline
             | TokenKind::LineComment
             | TokenKind::BlockComment

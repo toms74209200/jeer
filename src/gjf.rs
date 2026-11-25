@@ -588,6 +588,18 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/type-use-other-package/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/string-text-block/input.java"),
+                include_str!("../tests/fixtures/gjf/string-text-block/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/string-text-block-in-call/input.java"),
+                include_str!("../tests/fixtures/gjf/string-text-block-in-call/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/modern-text-block-indent/input.java"),
+                include_str!("../tests/fixtures/gjf/modern-text-block-indent/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
@@ -783,13 +795,34 @@ mod tests {
     }
 
     #[test]
+    fn when_format_with_text_blocks_then_returns_the_oracle_output() {
+        let input = "class A {\n  String a = \"\"\"\n  x\"\"\";\n  String b = \"\"\"\n    one\n\n    two   \n\"\"\";\n  String c = \"\"\"   \n      deep\n    \"\"\";\n}\n";
+        let unit = parser::parse(input).ok();
+
+        let formatted = unit.map(|unit| format(input, &unit));
+
+        let expected = "class A {\n  String a =\n      \"\"\"\n      x\\\n      \"\"\";\n  String b =\n\"\"\"\n    one\n\n    two\n\"\"\";\n  String c =\n      \"\"\"\n        deep\n      \"\"\";\n}\n";
+        assert_eq!(formatted, Some(Ok(expected.to_owned())));
+    }
+
+    #[test]
+    fn when_format_with_text_block_whitespace_then_returns_the_oracle_output() {
+        let input = "class A {\n  String s0 = \"\"\"\n\u{85}    a\u{85}\n    b\n    \"\"\";\n  String s1 = \"\"\"\n\u{a0}    a\u{a0}\n    b\n    \"\"\";\n  String s2 = \"\"\"\n\u{2007}    a\u{2007}\n    b\n    \"\"\";\n  String s3 = \"\"\"\n\u{202f}    a\u{202f}\n    b\n    \"\"\";\n  String s4 = \"\"\"\n\u{1c}    a\u{1c}\n    b\n    \"\"\";\n  String s5 = \"\"\"\n\u{1f}    a\u{1f}\n    b\n    \"\"\";\n  String s6 = \"\"\"\n\u{3000}    a\u{3000}\n    b\n    \"\"\";\n  String s7 = \"\"\"\n\t    a\t\n    b\n    \"\"\";\n}\n";
+        let unit = parser::parse(input).ok();
+
+        let formatted = unit.map(|unit| format(input, &unit));
+
+        let expected = "class A {\n  String s0 =\n\"\"\"\n\u{85}    a\u{85}\n    b\n\"\"\";\n  String s1 =\n\"\"\"\n\u{a0}    a\u{a0}\n    b\n\"\"\";\n  String s2 =\n\"\"\"\n\u{2007}    a\u{2007}\n    b\n\"\"\";\n  String s3 =\n\"\"\"\n\u{202f}    a\u{202f}\n    b\n\"\"\";\n  String s4 =\n      \"\"\"\n       a\n      b\n      \"\"\";\n  String s5 =\n      \"\"\"\n       a\n      b\n      \"\"\";\n  String s6 =\n      \"\"\"\n       a\n      b\n      \"\"\";\n  String s7 =\n      \"\"\"\n       a\n      b\n      \"\"\";\n}\n";
+        assert_eq!(formatted, Some(Ok(expected.to_owned())));
+    }
+
+    #[test]
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
             "/// doc\nclass A {}\n",
             "record R(int x) {}\n",
             "class A { <T> @B int f() { return 0; } }\n",
             "class A { boolean f(Object o) { return o instanceof String s; } }\n",
-            "class A { String s = \"\"\"\n  x\"\"\"; }\n",
             "class A { void f(A this) {} }\n",
             "class A { int @B [] x; }\n",
             "module m {}\n",
