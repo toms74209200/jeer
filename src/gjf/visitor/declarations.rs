@@ -593,6 +593,109 @@ impl<'a> Visitor<'a> {
         self.class_body(body)
     }
 
+    pub(super) fn module_declaration(&mut self, node: &'a Node) -> Result<(), Unformatted> {
+        self.markdown_javadoc(node)?;
+        let [Element::Node(modifiers), rest @ ..] = node.children.as_slice() else {
+            return Err(Unformatted::Deferred);
+        };
+        let (open, rest) = match rest {
+            [Element::Token(open), rest @ ..] if &self.source[open.start..open.end] == "open" => {
+                (Some(open), rest)
+            }
+            rest => (None, rest),
+        };
+        let [
+            Element::Token(keyword),
+            Element::Node(name),
+            Element::Token(left),
+            directives @ ..,
+            Element::Token(right),
+        ] = rest
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        for annotation in modifiers.children.iter().filter_map(NODE) {
+            self.annotation(annotation)?;
+            self.builder.add(FORCED)?;
+        }
+        if let Some(open) = open {
+            self.token(open, ZERO, None)?;
+            self.builder.add(SPACE)?;
+        }
+        self.token(keyword, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        self.qualified_name(name)?;
+        self.builder.add(SPACE)?;
+        if directives.is_empty() {
+            self.token(left, ZERO, Some(PLUS_TWO))?;
+            self.builder.add(Op::BlankLine(BlankLine::No))?;
+            return self.token(right, PLUS_TWO, None);
+        }
+        self.builder.add(OPEN_PLUS_TWO)?;
+        self.token(left, ZERO, None)?;
+        self.builder.add(FORCED)?;
+        let mut previous: Option<&str> = None;
+        for directive in directives.iter().filter_map(NODE) {
+            let Some(Element::Token(word)) = directive.children.first() else {
+                return Err(Unformatted::Deferred);
+            };
+            let kind = &self.source[word.start..word.end];
+            let blank = match previous {
+                Some(previous) if previous != kind => BlankLine::Yes,
+                Some(_) | None => BlankLine::No,
+            };
+            self.builder.add(Op::BlankLine(blank))?;
+            self.builder.add(FORCED)?;
+            self.directive(directive)?;
+            previous = Some(kind);
+        }
+        self.builder.add(CLOSE)?;
+        self.builder.add(FORCED)?;
+        self.token(right, ZERO, None)
+    }
+
+    fn directive(&mut self, directive: &'a Node) -> Result<(), Unformatted> {
+        let [Element::Token(word), middle @ .., Element::Token(semicolon)] =
+            directive.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        self.token(word, ZERO, None)?;
+        self.builder.add(SPACE)?;
+        let separator = middle.iter().position(|element| match element {
+            Element::Token(token) => matches!(&self.source[token.start..token.end], "to" | "with"),
+            Element::Node(_) => false,
+        });
+        let (head, items) = middle.split_at(separator.unwrap_or(middle.len()));
+        for element in head {
+            match element {
+                Element::Token(modifier) => {
+                    self.token(modifier, ZERO, None)?;
+                    self.builder.add(SPACE)?;
+                }
+                Element::Node(name) => self.qualified_name(name)?,
+            }
+        }
+        let Some((Element::Token(separator), items)) = items.split_first() else {
+            return self.token(semicolon, ZERO, None);
+        };
+        self.builder.add(OPEN_PLUS_FOUR)?;
+        self.builder.add(SPACE)?;
+        self.token(separator, ZERO, None)?;
+        self.builder.add(FORCED)?;
+        for item in items {
+            match item {
+                Element::Token(comma) => {
+                    self.token(comma, ZERO, None)?;
+                    self.builder.add(FORCED)?;
+                }
+                Element::Node(name) => self.qualified_name(name)?,
+            }
+        }
+        self.token(semicolon, ZERO, None)?;
+        self.builder.add(CLOSE)
+    }
+
     pub(super) fn class_body(&mut self, body: &'a Node) -> Result<(), Unformatted> {
         let [Element::Token(open), members @ .., Element::Token(close)] = body.children.as_slice()
         else {

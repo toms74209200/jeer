@@ -640,6 +640,10 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/expr-instanceof/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/modern-module/input.java"),
+                include_str!("../tests/fixtures/gjf/modern-module/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
@@ -879,13 +883,30 @@ mod tests {
     }
 
     #[test]
+    fn when_format_with_modules_then_returns_the_oracle_output() {
+        let cases = [
+            (
+                "import com.example.Ann;\n\n/** The app. */\n@Ann @Deprecated open module com.example.app {\n  requires static transitive java.sql;\n  requires java.base;\n  exports com.example.api to com.example.one, com.example.two;\n  provides com.example.Spi with com.example.A, com.example.B;\n  uses com.example.Spi;\n}\n",
+                "import com.example.Ann;\n\n/** The app. */\n@Ann\n@Deprecated\nopen module com.example.app {\n  requires static transitive java.sql;\n  requires java.base;\n\n  exports com.example.api to\n      com.example.one,\n      com.example.two;\n\n  provides com.example.Spi with\n      com.example.A,\n      com.example.B;\n\n  uses com.example.Spi;\n}\n",
+            ),
+            ("module m {}\n", "module m {}\n"),
+        ];
+        for (input, expected) in cases {
+            let unit = parser::parse(input).ok();
+
+            let formatted = unit.map(|unit| format(input, &unit));
+
+            assert_eq!(formatted, Some(Ok(expected.to_owned())), "{input}");
+        }
+    }
+
+    #[test]
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
             "/// doc\nclass A {}\n",
             "class A { <T> @B int f() { return 0; } }\n",
             "class A { void f(A this) {} }\n",
             "class A { int @B [] x; }\n",
-            "module m {}\n",
         ];
         for input in cases {
             let unit = parser::parse(input).ok();
