@@ -79,12 +79,12 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    fn header(&mut self, condition: &'a Node) -> Result<(), Unformatted> {
+    fn header(&mut self, parens: &'a [Element]) -> Result<(), Unformatted> {
         let [
             Element::Token(open),
             Element::Node(inner),
             Element::Token(close),
-        ] = condition.children.as_slice()
+        ] = parens
         else {
             return Err(Unformatted::Deferred);
         };
@@ -143,7 +143,7 @@ impl<'a> Visitor<'a> {
             }
             self.token(clause.keyword, ZERO, None)?;
             self.builder.add(SPACE)?;
-            self.header(clause.condition)?;
+            self.header(&clause.condition.children)?;
             let collapse = match count == 1 && last.is_none() {
                 true => Collapse::Empty,
                 false => Collapse::Never,
@@ -176,7 +176,7 @@ impl<'a> Visitor<'a> {
         };
         self.token(keyword, ZERO, None)?;
         self.builder.add(SPACE)?;
-        self.header(condition)?;
+        self.header(&condition.children)?;
         self.statement(body, Collapse::Empty, BlankLine::No)
     }
 
@@ -601,13 +601,16 @@ impl<'a> Visitor<'a> {
     }
 
     pub(super) fn switch_statement(&mut self, node: &'a Node) -> Result<(), Unformatted> {
-        let [
-            Element::Token(keyword),
-            Element::Node(condition),
-            Element::Node(block),
-        ] = node.children.as_slice()
-        else {
-            return Err(Unformatted::Deferred);
+        let (keyword, parens, block) = match node.children.as_slice() {
+            [
+                Element::Token(keyword),
+                Element::Node(condition),
+                Element::Node(block),
+            ] => (keyword, condition.children.as_slice(), block),
+            [Element::Token(keyword), parens @ .., Element::Node(block)] => {
+                (keyword, parens, block)
+            }
+            _ => return Err(Unformatted::Deferred),
         };
         let [Element::Token(open), entries @ .., Element::Token(close)] = block.children.as_slice()
         else {
@@ -615,7 +618,7 @@ impl<'a> Visitor<'a> {
         };
         self.token(keyword, ZERO, None)?;
         self.builder.add(SPACE)?;
-        self.header(condition)?;
+        self.header(parens)?;
         self.builder.add(SPACE)?;
         self.token(open, ZERO, Some(PLUS_TWO))?;
         self.builder.add(Op::BlankLine(BlankLine::No))?;

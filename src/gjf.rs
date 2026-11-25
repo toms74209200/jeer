@@ -612,6 +612,34 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/stmt-local-class/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/modern-switch-expression/input.java"),
+                include_str!("../tests/fixtures/gjf/modern-switch-expression/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/modern-yield/input.java"),
+                include_str!("../tests/fixtures/gjf/modern-yield/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/modern-record-pattern/input.java"),
+                include_str!("../tests/fixtures/gjf/modern-record-pattern/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/modern-enhanced-for-pattern/input.java"),
+                include_str!("../tests/fixtures/gjf/modern-enhanced-for-pattern/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/modern-unnamed/input.java"),
+                include_str!("../tests/fixtures/gjf/modern-unnamed/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/modern-var/input.java"),
+                include_str!("../tests/fixtures/gjf/modern-var/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/expr-instanceof/input.java"),
+                include_str!("../tests/fixtures/gjf/expr-instanceof/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/string-annotation-value/input.java"),
                 include_str!("../tests/fixtures/gjf/string-annotation-value/expected.java"),
             ),
@@ -840,11 +868,21 @@ mod tests {
     }
 
     #[test]
+    fn when_format_with_switch_expressions_then_returns_the_oracle_output() {
+        let input = "class A {\n  int f(Object o) {\n    if (o instanceof final String s) {}\n    if (o instanceof SomeVeryLongRecordName(SomeOtherLongRecordName(var firstComponent, var secondComponent), _)) {}\n    g(switch (o) { case Integer i -> i; default -> 0; }, 1);\n    return switch (o) {\n      case Integer i, Long l when o.hashCode() > 0 -> 1;\n      case String s -> {\n        yield s.length() + 1;\n      }\n      default -> throw new IllegalStateException();\n    };\n  }\n}\n";
+        let unit = parser::parse(input).ok();
+
+        let formatted = unit.map(|unit| format(input, &unit));
+
+        let expected = "class A {\n  int f(Object o) {\n    if (o instanceof final String s) {}\n    if (o\n        instanceof\n        SomeVeryLongRecordName(\n            SomeOtherLongRecordName(var firstComponent, var secondComponent),\n            _)) {}\n    g(\n        switch (o) {\n          case Integer i -> i;\n          default -> 0;\n        },\n        1);\n    return switch (o) {\n      case Integer i, Long l when o.hashCode() > 0 -> 1;\n      case String s -> {\n        yield s.length() + 1;\n      }\n      default -> throw new IllegalStateException();\n    };\n  }\n}\n";
+        assert_eq!(formatted, Some(Ok(expected.to_owned())));
+    }
+
+    #[test]
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
             "/// doc\nclass A {}\n",
             "class A { <T> @B int f() { return 0; } }\n",
-            "class A { boolean f(Object o) { return o instanceof String s; } }\n",
             "class A { void f(A this) {} }\n",
             "class A { int @B [] x; }\n",
             "module m {}\n",
