@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "shampoo guard edit --json",
+            "command": "shampoo hook edit",
             "timeout": 600
           }
         ]
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "shampoo guard task --json",
+            "command": "shampoo hook task",
             "timeout": 600
           }
         ]
