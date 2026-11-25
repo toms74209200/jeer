@@ -6,7 +6,6 @@ src/gjf/input.rs	build	6
 src/gjf/input.rs	toks	4
 src/gjf/visitor/declarations.rs	compilation_unit	3
 src/gjf/visitor/declarations.rs	enum_declaration	4
-src/gjf/visitor/declarations.rs	method	3
 src/gjf/visitor/expressions.rs	arguments	5
 src/gjf/visitor/expressions.rs	binary	3
 src/gjf/visitor/expressions.rs	chain	9

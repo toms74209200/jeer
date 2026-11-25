@@ -223,6 +223,7 @@ impl<'a> Visitor<'a> {
                 | NodeKind::FieldDecl
                 | NodeKind::LocalVariableDecl
                 | NodeKind::FormalParameter
+                | NodeKind::RecordComponent
                 | NodeKind::MethodDecl
                 | NodeKind::ConstructorDecl
                 | NodeKind::CompactConstructorDecl
@@ -289,7 +290,10 @@ impl<'a> Visitor<'a> {
             NodeKind::ClassDecl | NodeKind::InterfaceDecl => self.class_declaration(node),
             NodeKind::EnumDecl => self.enum_declaration(node),
             NodeKind::AnnotationTypeDecl => self.annotation_type(node),
-            NodeKind::MethodDecl | NodeKind::ConstructorDecl => self.method(node),
+            NodeKind::MethodDecl | NodeKind::ConstructorDecl | NodeKind::CompactConstructorDecl => {
+                self.method(node)
+            }
+            NodeKind::RecordDecl => self.record_declaration(node),
             NodeKind::Initializer => self.initializer(node),
             NodeKind::LocalClassDecl => match node.children.as_slice() {
                 [Element::Node(declaration)] => self.scan(declaration),
@@ -440,7 +444,6 @@ impl<'a> Visitor<'a> {
             | NodeKind::Modifiers
             | NodeKind::AnnotationArguments
             | NodeKind::ElementValuePair
-            | NodeKind::RecordDecl
             | NodeKind::TypeParameters
             | NodeKind::TypeParameter
             | NodeKind::TypeBound
@@ -454,7 +457,6 @@ impl<'a> Visitor<'a> {
             | NodeKind::RecordComponent
             | NodeKind::FieldDecl
             | NodeKind::VariableDeclarator
-            | NodeKind::CompactConstructorDecl
             | NodeKind::FormalParameters
             | NodeKind::FormalParameter
             | NodeKind::ReceiverParameter
