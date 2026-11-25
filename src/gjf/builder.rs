@@ -26,6 +26,10 @@ pub enum Op<'s> {
         comments_indent: Indent,
         trailing: Option<Indent>,
     },
+    Lines {
+        text: &'s str,
+        lines: Vec<String>,
+    },
     Fence,
     BlankLine(BlankLine),
     Sync(usize),
@@ -74,6 +78,7 @@ enum Event<'a> {
         reality: Reality,
         comments_indent: Indent,
         trailing: Option<Indent>,
+        lines: Option<Vec<String>>,
     },
     Tok(&'a Tok),
     Space,
@@ -164,32 +169,8 @@ impl<'a> Builder<'a> {
                 text,
                 comments_indent,
                 trailing,
-            } => match self.input.tokens.get(self.next) {
-                Some(token) if token.tok.text == text => {
-                    self.next += 1;
-                    self.events.push(Event::Token {
-                        token,
-                        reality: Reality::Real,
-                        comments_indent,
-                        trailing,
-                    });
-                }
-                Some(token) => {
-                    return Err(Unformatted::Rejected {
-                        offset: self.input_position,
-                        message: format!(
-                            "expected token: '{}'; generated {text} instead",
-                            token.tok.text
-                        ),
-                    });
-                }
-                None => {
-                    return Err(Unformatted::Rejected {
-                        offset: self.input_position,
-                        message: format!("expected token: 'null'; generated {text} instead"),
-                    });
-                }
-            },
+            } => self.real(text, comments_indent, trailing, None)?,
+            Op::Lines { text, lines } => self.real(text, Indent::Const(0), None, Some(lines))?,
             Op::BlankLine(wanted) => {
                 let token = self
                     .input
@@ -214,6 +195,39 @@ impl<'a> Builder<'a> {
         Ok(())
     }
 
+    fn real(
+        &mut self,
+        text: &str,
+        comments_indent: Indent,
+        trailing: Option<Indent>,
+        lines: Option<Vec<String>>,
+    ) -> Result<(), Unformatted> {
+        match self.input.tokens.get(self.next) {
+            Some(token) if token.tok.text == text => {
+                self.next += 1;
+                self.events.push(Event::Token {
+                    token,
+                    reality: Reality::Real,
+                    comments_indent,
+                    trailing,
+                    lines,
+                });
+                Ok(())
+            }
+            Some(token) => Err(Unformatted::Rejected {
+                offset: self.input_position,
+                message: format!(
+                    "expected token: '{}'; generated {text} instead",
+                    token.tok.text
+                ),
+            }),
+            None => Err(Unformatted::Rejected {
+                offset: self.input_position,
+                message: format!("expected token: 'null'; generated {text} instead"),
+            }),
+        }
+    }
+
     pub fn build(mut self) -> Result<(Doc, HashMap<usize, BlankLine>), Unformatted> {
         for token in &self.input.tokens[self.next..] {
             self.events.push(Event::Token {
@@ -221,6 +235,7 @@ impl<'a> Builder<'a> {
                 reality: Reality::Imaginary,
                 comments_indent: Indent::Const(0),
                 trailing: None,
+                lines: None,
             });
         }
         let events = self.events;
@@ -239,6 +254,7 @@ impl<'a> Builder<'a> {
                 reality,
                 comments_indent,
                 trailing,
+                ..
             } = event
             else {
                 continue;
@@ -438,11 +454,13 @@ impl<'a> Builder<'a> {
                     append = *stack.last().ok_or(unbalanced.clone())?;
                     levels[append].items.push(Item::Doc(Doc::Break(separator)));
                 }
-                Event::Token { token, .. } => {
+                Event::Token { token, lines, .. } => {
                     let range = Some((token.index, token.index + 1));
-                    levels[append]
-                        .items
-                        .push(Item::Doc(Doc::Text(token.tok.text.clone(), range)));
+                    let doc = match lines {
+                        Some(lines) => Doc::Lines(lines.clone(), range),
+                        None => Doc::Text(token.tok.text.clone(), range),
+                    };
+                    levels[append].items.push(Item::Doc(doc));
                 }
                 Event::Tok(tok) => {
                     let range = tok.index().map(|index| (index, index + 1));
@@ -669,10 +687,10 @@ mod tests {
 
     #[test]
     fn when_build_with_a_token_the_input_does_not_have_then_returns_gjf_rejection() {
-        let cases = [
+        let cases: [(&str, &[&str], Unformatted); 3] = [
             (
                 "a",
-                "b",
+                &["b"],
                 Unformatted::Rejected {
                     offset: 0,
                     message: "expected token: 'a'; generated b instead".to_owned(),
@@ -680,24 +698,34 @@ mod tests {
             ),
             (
                 "",
-                "b",
+                &["b"],
                 Unformatted::Rejected {
                     offset: 0,
                     message: "expected token: ''; generated b instead".to_owned(),
                 },
             ),
+            (
+                "",
+                &["", "b"],
+                Unformatted::Rejected {
+                    offset: 0,
+                    message: "expected token: 'null'; generated b instead".to_owned(),
+                },
+            ),
         ];
-        for (source, text, expected) in cases {
+        for (source, texts, expected) in cases {
             let tokens = lexer::scan(source)
                 .map(|lexed| lexed.tokens)
                 .unwrap_or_default();
             let input = input::build(source, &tokens);
             let mut builder = Builder::from(&input);
 
-            let added = builder.add(Op::Token {
-                text,
-                comments_indent: Indent::Const(0),
-                trailing: None,
+            let added = texts.iter().try_for_each(|text| {
+                builder.add(Op::Token {
+                    text,
+                    comments_indent: Indent::Const(0),
+                    trailing: None,
+                })
             });
 
             assert_eq!(added, Err(expected), "{source:?}");

@@ -1,5 +1,4 @@
 mod cli;
-#[expect(dead_code, reason = "text blocks reach the visitor in task 150")]
 mod gjf;
 mod io;
 mod lexer;
