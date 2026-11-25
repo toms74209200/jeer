@@ -71,6 +71,7 @@ pub enum Doc {
     Lines(Vec<String>, Range),
     Comment {
         text: String,
+        position: usize,
         flat: String,
         width: usize,
         range: Range,
@@ -84,12 +85,12 @@ pub enum Doc {
 }
 
 pub trait Comments {
-    fn rewrite(&self, text: &str, max_width: usize, column: usize) -> String;
+    fn rewrite(&self, text: &str, position: usize, max_width: usize, column: usize) -> String;
 }
 
-impl<F: Fn(&str, usize, usize) -> String> Comments for F {
-    fn rewrite(&self, text: &str, max_width: usize, column: usize) -> String {
-        self(text, max_width, column)
+impl<F: Fn(&str, usize, usize, usize) -> String> Comments for F {
+    fn rewrite(&self, text: &str, position: usize, max_width: usize, column: usize) -> String {
+        self(text, position, max_width, column)
     }
 }
 
@@ -186,7 +187,7 @@ impl Group {
 }
 
 impl Doc {
-    pub fn comment(text: &str, range: Range) -> Doc {
+    pub fn comment(text: &str, position: usize, range: Range) -> Doc {
         let parameter = parameter_comment(text);
         let flat = match (
             text.starts_with("//") && !text.starts_with("// "),
@@ -202,6 +203,7 @@ impl Doc {
         };
         Doc::Comment {
             text: text.to_owned(),
+            position,
             flat,
             width,
             range,
@@ -475,8 +477,15 @@ impl Solver<'_> {
                 }
                 state
             }
-            Doc::Comment { text, range, .. } => {
-                let rewritten = self.comments.rewrite(text, self.max_width, state.column);
+            Doc::Comment {
+                text,
+                position,
+                range,
+                ..
+            } => {
+                let rewritten =
+                    self.comments
+                        .rewrite(text, *position, self.max_width, state.column);
                 if let Some(second_line) = first_break(&rewritten) {
                     let _ = self.end_line(state.column + second_line);
                 }
@@ -1026,7 +1035,7 @@ mod tests {
         for (name, doc, max_width, expected) in cases {
             let mut sink = JavaOutput::default();
 
-            solve(&doc, max_width, &|t: &str, _, _| t.to_owned()).replay(&mut sink);
+            solve(&doc, max_width, &|t: &str, _, _, _| t.to_owned()).replay(&mut sink);
 
             assert_eq!(String::from(sink), format!("{expected}\n"), "{name}");
         }
@@ -1048,7 +1057,7 @@ mod tests {
             ("/* a\r\n b */", "/* a\r\n b */", 6),
         ];
         for (text, flat, width) in cases {
-            let comment = Doc::comment(text, None);
+            let comment = Doc::comment(text, 0, None);
 
             assert_eq!((comment.flat(), comment.width()), (flat, width), "{text:?}");
         }
@@ -1060,7 +1069,7 @@ mod tests {
             Indent::Const(0),
             vec![
                 Doc::Text("f(".to_owned(), None),
-                Doc::comment("/*x*/", None),
+                Doc::comment("/*x*/", 0, None),
                 Doc::Break(Break {
                     mode: BreakMode::Unified,
                     flat: " ".to_owned(),
@@ -1072,7 +1081,7 @@ mod tests {
         ));
         let mut sink = JavaOutput::default();
 
-        solve(&doc, 10, &|t: &str, _, column: usize| {
+        solve(&doc, 10, &|t: &str, _, _, column: usize| {
             format!("{t}@{column}")
         })
         .replay(&mut sink);
@@ -1099,7 +1108,7 @@ mod tests {
             for _ in 0..3 {
                 let mut sink = JavaOutput::default();
                 let start = std::time::Instant::now();
-                solve(&doc, 100, &|t: &str, _, _| t.to_owned()).replay(&mut sink);
+                solve(&doc, 100, &|t: &str, _, _, _| t.to_owned()).replay(&mut sink);
                 best = best.min(start.elapsed());
             }
             timings.push(best.as_secs_f64());
