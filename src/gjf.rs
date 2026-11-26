@@ -58,24 +58,31 @@ pub fn step(options: Options) -> impl Fn(&str) -> Result<String, Rejection> {
                 let ordered = steps::unused_imports::apply(&formatted)
                     .and_then(|used| imports::reorder(&used))?;
                 match reflow_long_strings {
-                    true => Ok(reflow_strings(&ordered).unwrap_or_else(|_| text.to_owned())),
+                    true => settle(text, reflow_strings(&ordered)),
                     false => Ok(ordered),
                 }
             }
-            Err(Unformatted::Deferred) => Ok(text.to_owned()),
-            Err(Unformatted::Rejected { offset, message }) => Err(Rejection {
-                position: Position::Offset(offset),
-                message,
-            }),
-            Err(Unformatted::RejectedAt {
-                line,
-                column,
-                message,
-            }) => Err(Rejection {
-                position: Position::LineColumn { line, column },
-                message,
-            }),
+            unformatted => settle(text, unformatted),
         }
+    }
+}
+
+fn settle(text: &str, result: Result<String, Unformatted>) -> Result<String, Rejection> {
+    match result {
+        Ok(formatted) => Ok(formatted),
+        Err(Unformatted::Deferred) => Ok(text.to_owned()),
+        Err(Unformatted::Rejected { offset, message }) => Err(Rejection {
+            position: Position::Offset(offset),
+            message,
+        }),
+        Err(Unformatted::RejectedAt {
+            line,
+            column,
+            message,
+        }) => Err(Rejection {
+            position: Position::LineColumn { line, column },
+            message,
+        }),
     }
 }
 
