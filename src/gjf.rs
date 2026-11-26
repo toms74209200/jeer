@@ -6,6 +6,7 @@ pub mod imports;
 pub mod input;
 pub mod javadoc;
 pub mod output;
+pub mod reflow;
 pub mod visitor;
 
 use std::collections::HashMap;
@@ -39,34 +40,68 @@ fn significant(node: &Node) -> Node {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-pub struct Options {}
+pub struct Options {
+    pub reflow_long_strings: bool,
+}
 
 pub fn step(options: Options) -> impl Fn(&str) -> Result<String, Rejection> {
     move |text| {
-        let Options {} = options;
+        let Options {
+            reflow_long_strings,
+        } = options;
         let unit = parser::parse(text).map_err(|e| Rejection {
             position: Position::Offset(e.offset),
             message: e.message,
         })?;
         match format(text, &unit) {
             Ok(formatted) => {
-                steps::unused_imports::apply(&formatted).and_then(|used| imports::reorder(&used))
+                let ordered = steps::unused_imports::apply(&formatted)
+                    .and_then(|used| imports::reorder(&used))?;
+                match reflow_long_strings {
+                    true => settle(text, reflow_strings(&ordered)),
+                    false => Ok(ordered),
+                }
             }
-            Err(Unformatted::Deferred) => Ok(text.to_owned()),
-            Err(Unformatted::Rejected { offset, message }) => Err(Rejection {
-                position: Position::Offset(offset),
-                message,
-            }),
-            Err(Unformatted::RejectedAt {
-                line,
-                column,
-                message,
-            }) => Err(Rejection {
-                position: Position::LineColumn { line, column },
-                message,
-            }),
+            unformatted => settle(text, unformatted),
         }
     }
+}
+
+fn settle(text: &str, result: Result<String, Unformatted>) -> Result<String, Rejection> {
+    match result {
+        Ok(formatted) => Ok(formatted),
+        Err(Unformatted::Deferred) => Ok(text.to_owned()),
+        Err(Unformatted::Rejected { offset, message }) => Err(Rejection {
+            position: Position::Offset(offset),
+            message,
+        }),
+        Err(Unformatted::RejectedAt {
+            line,
+            column,
+            message,
+        }) => Err(Rejection {
+            position: Position::LineColumn { line, column },
+            message,
+        }),
+    }
+}
+
+fn reflow_strings(text: &str) -> Result<String, Unformatted> {
+    let too_long = text.lines().any(|line| line.encode_utf16().count() > 100);
+    if !too_long {
+        return Ok(text.to_owned());
+    }
+    let unit = parser::parse(text).map_err(|_| Unformatted::Deferred)?;
+    let wrapped = reflow::wrap(text, &significant(&unit.tree));
+    if wrapped == text {
+        return Ok(wrapped);
+    }
+    let reformatted = format(text, &unit)?;
+    if reformatted != text {
+        return Err(Unformatted::Deferred);
+    }
+    parser::parse(&wrapped).map_err(|_| Unformatted::Deferred)?;
+    Ok(wrapped)
 }
 
 fn format(source: &str, unit: &Unit) -> Result<String, Unformatted> {
@@ -898,6 +933,86 @@ mod tests {
 
             assert_eq!(formatted, Some(Ok(expected.to_owned())), "{input}");
         }
+    }
+
+    #[test]
+    fn when_step_with_reflow_on_reflow_fixtures_then_returns_what_google_java_format_returns() {
+        let cases = [
+            (
+                include_str!("../tests/fixtures/gjf-reflow/reflow-argument/input.java"),
+                include_str!("../tests/fixtures/gjf-reflow/reflow-argument/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf-reflow/reflow-assignment/input.java"),
+                include_str!("../tests/fixtures/gjf-reflow/reflow-assignment/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf-reflow/reflow-return/input.java"),
+                include_str!("../tests/fixtures/gjf-reflow/reflow-return/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf-reflow/reflow-concatenation/input.java"),
+                include_str!("../tests/fixtures/gjf-reflow/reflow-concatenation/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf-reflow/reflow-annotation/input.java"),
+                include_str!("../tests/fixtures/gjf-reflow/reflow-annotation/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf-reflow/reflow-unchanged/input.java"),
+                include_str!("../tests/fixtures/gjf-reflow/reflow-unchanged/expected.java"),
+            ),
+        ];
+        let reflowing = step(Options {
+            reflow_long_strings: true,
+        });
+        for (input, expected) in cases {
+            let twice = reflowing(input).and_then(|once| reflowing(&once));
+            let again = twice
+                .as_deref()
+                .map_or(None, |settled| reflowing(settled).ok());
+
+            assert_eq!(twice, Ok(expected.to_owned()), "{input}");
+            assert_eq!(again.as_deref(), Some(expected), "{input}");
+        }
+    }
+
+    #[test]
+    fn when_step_with_reflow_on_escapes_then_returns_the_oracle_output() {
+        let input = "class A {\n  String a = prefix() + \"A string after a call, long enough that the concatenation passes the limit of one hundred columns.\";\n  String b = \"A first literal that is long enough on its own to pass the column limit of one hundred, \" + \"and more\";\n  String c = \"Line one of a message that has escapes\\nline two\\r\\nline three\\tand a tab, also a backslash \\\\ in it, long.\";\n  String f = \"A first literal that is long enough on its own to pass the column limit of one hundred columns, \" + \"and more\";\n  String g = \"The first line of a long message that has to be wrapped to stay inside the limit\\n\" + \" and a second literal that starts with a space, long enough to pass the limit.\";\n  String h = \" A literal that starts with a space and is long enough to pass the limit of one hundred columns.\";\n  String i = \"A literal of many words that is long enough to pass the limit of one hundred columns by a lot\" + \"Suffix\";\n  String j = \"A long message that ends with a newline escape and passes the limit of one hundred columns.\\n\";\n  String d = \"Two  spaces  between  words  in  a  string  that  is  long  enough  to  pass  the  column  limit  here.\";\n  int e = \"A receiver literal that is long enough to pass the column limit of one hundred columns by far\".length();\n}\n";
+        let reflowing = step(Options {
+            reflow_long_strings: true,
+        });
+
+        let twice = reflowing(input).and_then(|once| reflowing(&once));
+
+        let expected = "class A {\n  String a =\n      prefix()\n          + \"A string after a call, long enough that the concatenation passes the limit of one\"\n          + \" hundred columns.\";\n  String b =\n      \"A first literal that is long enough on its own to pass the column limit of one hundred, \"\n          + \"and more\";\n  String c =\n      \"Line one of a message that has escapes\\n\"\n          + \"line two\\r\\n\"\n          + \"line three\\tand a tab, also a backslash \\\\ in it, long.\";\n  String f =\n      \"A first literal that is long enough on its own to pass the column limit of one hundred\"\n          + \" columns, and more\";\n  String g =\n      \"The first line of a long message that has to be wrapped to stay inside the limit\\n\"\n          + \" and a second literal that starts with a space, long enough to pass the limit.\";\n  String h =\n      \" A literal that starts with a space and is long enough to pass the limit of one hundred\"\n          + \" columns.\";\n  String i =\n      \"A literal of many words that is long enough to pass the limit of one hundred columns by a\"\n          + \" lotSuffix\";\n  String j =\n      \"A long message that ends with a newline escape and passes the limit of one hundred\"\n          + \" columns.\\n\";\n  String d =\n      \"Two  spaces  between  words  in  a  string  that  is  long  enough  to  pass  the  column \"\n          + \" limit  here.\";\n  int e =\n      \"A receiver literal that is long enough to pass the column limit of one hundred columns by far\"\n          .length();\n}\n";
+        assert_eq!(twice, Ok(expected.to_owned()));
+    }
+
+    #[test]
+    fn when_step_with_reflow_where_google_java_format_wraps_otherwise_then_returns_the_input() {
+        let cases = [
+            "class A {\n  String k = \"A literal long enough to pass the limit of one hundred columns, then followed by a text block\" + \"\"\"\n      tail\n      \"\"\";\n}\n",
+            "class A {\n  void f() {\n    g(); ///w\n    log(\"This message is long enough that it does not fit on one line together with the call around it.\");\n  }\n}\n",
+        ];
+        let reflowing = step(Options {
+            reflow_long_strings: true,
+        });
+        for input in cases {
+            let formatted = reflowing(input);
+
+            assert_eq!(formatted, Ok(input.to_owned()), "{input}");
+        }
+    }
+
+    #[test]
+    fn when_reflow_strings_with_unparsable_text_then_returns_deferred() {
+        let input = format!("class A {{ int x = ; // {}\n", "y".repeat(100));
+
+        let reflowed = reflow_strings(&input);
+
+        assert_eq!(reflowed, Err(Unformatted::Deferred));
     }
 
     #[test]
