@@ -525,12 +525,18 @@ impl<'a> Visitor<'a> {
         let [
             Element::Token(keyword),
             Element::Token(open),
-            Element::Node(modifiers),
-            Element::Node(types),
-            Element::Token(name),
+            parameter @ ..,
             Element::Token(close),
             Element::Node(block),
         ] = clause.children.as_slice()
+        else {
+            return Err(Unformatted::Deferred);
+        };
+        let [
+            Element::Node(modifiers),
+            Element::Node(types),
+            Element::Token(name),
+        ] = parameter
         else {
             return Err(Unformatted::Deferred);
         };
@@ -544,6 +550,7 @@ impl<'a> Visitor<'a> {
             [Element::Node(ty)] => {
                 self.builder.add(FILL)?;
                 self.builder.add(OPEN_ZERO)?;
+                self.sync_start(parameter)?;
                 self.declare_one(
                     Declaration::Local,
                     field_annotation_direction(modifiers),
@@ -560,6 +567,7 @@ impl<'a> Visitor<'a> {
             [alternatives @ .., Element::Token(bar), Element::Node(last)] => {
                 self.builder.add(OPEN_ZERO)?;
                 self.builder.add(OPEN_ZERO)?;
+                self.sync_start(parameter)?;
                 let annotations = self.modifiers(modifiers, Direction::Horizontal, None)?;
                 self.inline_annotations(&annotations)?;
                 if !annotations.is_empty() {

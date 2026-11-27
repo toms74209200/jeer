@@ -1513,7 +1513,15 @@ impl<'a> Visitor<'a> {
             },
             false => (ty, &[] as &[Element]),
         };
-        self.scan(base)?;
+        match base.children.as_slice() {
+            [Element::Token(var)]
+                if base.kind == NodeKind::ClassType
+                    && &self.source[var.start..var.end] == "var" =>
+            {
+                self.token(var, ZERO, None)?;
+            }
+            _ => self.scan(base)?,
+        }
         self.builder.add(OPEN_PLUS_FOUR)?;
         self.dimensions(type_dims)?;
         if let Some(varargs) = varargs {
