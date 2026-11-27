@@ -89,7 +89,7 @@ if printf '%s\n' "$msg" | grep -qiE '\[(skip ci|ci skip|no ci|skip actions|actio
 fi
 
 if printf '%s\n' "$changed" | grep -qE '^\.shampoo/(policies|rules)/' && ! printf '%s\n' "$msg" | grep -q '^Walk'; then
-	violate "a commit that changes a policy or rule records the walk of its steps in a paragraph starting with \"Walk\" (reviews policy, §8.2)"
+	violate "a commit that changes a policy or rule records the walk of its steps in a paragraph starting with \"Walk\" (§8.2)"
 fi
 
 if [ -n "$second" ]; then

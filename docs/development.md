@@ -185,7 +185,7 @@ Every check is a script under `scripts/`; shampoo calls it through `scripts/brie
 The only exception to a lint is `#[expect(<lint>, reason = "<reason>")]`; lint levels are set in `Cargo.toml`, never in code.
 
 ### 8.2 Commits
-A task (a PR) is made of minimal commits: one commit, one subject, and everything staged is needed either for the subject to be true or for the checks to pass. A commit that changes a policy or a rule (`.shampoo/policies/`, `.shampoo/rules/`) records, in a body paragraph starting with "Walk", one line per step the change asks for: who does it, where, and how a review sees it (reviews policy); `scripts/check-commit.sh --rev` checks the paragraph is there, in CI and at the PR transition (the commit-msg hook cannot list the files of an amended commit, so it leaves this to them). Every commit passes the checks on its own (`.githooks/pre-commit` runs the small checks on what is staged, in a clean worktree); fixtures never share a commit with the implementation they judge (§8.4).
+A task (a PR) is made of minimal commits: one commit, one subject, and everything staged is needed either for the subject to be true or for the checks to pass. A commit that changes a policy or a rule (`.shampoo/policies/`, `.shampoo/rules/`) records, in a body paragraph starting with "Walk", one line per step the change asks for: who does it, where, and how a review sees it; `scripts/check-commit.sh --rev` checks the paragraph is there, in CI and at the PR transition (the commit-msg hook cannot list the files of an amended commit, so it leaves this to them). Every commit passes the checks on its own (`.githooks/pre-commit` runs the small checks on what is staged, in a clean worktree); fixtures never share a commit with the implementation they judge (§8.4).
 
 ```
 :<gitmoji>: <Verb> <what>
@@ -234,6 +234,7 @@ Verbs, in the imperative: Add, Change, Update, Bump, Fix, Remove, Rename, Move, 
 
 ### 8.5 Branches, merging and CI
 - One task per branch and PR, branched from `master` with `git switch -c`. Nothing is pushed to `master`
+- Review findings are fixed whole: a fix covers every case of the class a finding names, found in the diff and the reference by the fixer, not only the listed ones, before the next review. The reviewer's procedure is `reviewer` in `.shampoo/settings.toml`
 - The `master` ruleset requires a PR and merge commits, and forbids force pushes and deletion. No check is required: shampoo merges a PR once the workflows its changed paths call for have passed
 - Workflows follow shampoo's layout: `on-pullrequest-*.yml` decide when to run from the changed paths, `job-*.yml` hold the steps. A run may apply the formatter and push the result; it then checks what it pushed in the same run. Nothing skips CI
 - `on-pullrequest-token-usage.yml` runs on every PR event, merging included: it charts the records of the `token-usage-records` issue for the merged PRs and this one (`scripts/token-usage-chart.py`), uploads the page unzipped (`archive: false`, viewable in the browser) and links it from one PR comment it keeps updated and from the job summary, with a line when this PR is not charted. Its job continues on error, and it has no concurrency group, so no run of it is cancelled: a chart that cannot be drawn never holds a merge, and the failed run says why
