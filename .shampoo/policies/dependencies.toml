@@ -4,5 +4,9 @@ only when it is as trusted as serde or tokio and writing it ourselves would
 be unreasonable; error types, argument parsing, small utilities and test
 helpers (anyhow, clap, rstest, proptest, ...) are written with std.
 Adding any crate goes through `shampoo ask` with the reason, and into
-scripts/allowed-crates.txt. Tools such as ast-grep and cargo-llvm-cov are
+scripts/allowed-crates.txt. When the reference relies on a library (as
+GJF relies on commonmark-java), porting the part of it the reference
+uses is part of the task, as the compatibility policy asks: it is not a
+choice to ask about, and a crate is asked for only when that port would
+be unreasonable. Tools such as ast-grep and cargo-llvm-cov are
 not dependencies: they are pinned in the scripts that run them.'''
