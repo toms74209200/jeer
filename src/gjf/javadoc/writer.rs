@@ -256,15 +256,23 @@ pub fn render(
                 writer.continuing_footer_tag = true;
             }
             Kind::ListOpen => {
-                writer.requested = writer.requested.max(Requested::BlankLine);
+                let (before, indent) = match flavor {
+                    Flavor::Classic => (Requested::BlankLine, 2),
+                    Flavor::Markdown(_) => (Requested::None, 0),
+                };
+                writer.requested = writer.requested.max(before);
                 writer.write_token(token);
                 writer.continuing_list_item = false;
-                writer.indents.push(Indent::List(2));
+                writer.indents.push(Indent::List(indent));
                 writer.modified_lists += 1;
                 writer.requested = writer.requested.max(Requested::Newline);
             }
             Kind::ListClose => {
-                writer.requested = writer.requested.max(Requested::Newline);
+                let (before, after) = match flavor {
+                    Flavor::Classic => (Requested::Newline, Requested::BlankLine),
+                    Flavor::Markdown(_) => (Requested::None, Requested::None),
+                };
+                writer.requested = writer.requested.max(before);
                 let list = writer
                     .indents
                     .iter()
@@ -274,7 +282,7 @@ pub fn render(
                     .truncate(list.unwrap_or(writer.indents.len()));
                 writer.write_token(token);
                 writer.modified_lists = writer.modified_lists.saturating_sub(1);
-                writer.requested = writer.requested.max(Requested::BlankLine);
+                writer.requested = writer.requested.max(after);
             }
             Kind::ListItemOpen => {
                 writer.requested = writer.requested.max(Requested::Newline);
