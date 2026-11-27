@@ -73,6 +73,7 @@ pub enum Marked {
         text: String,
         positions: super::javadoc::markdown::Positions,
     },
+    Unsupported,
 }
 
 impl<'a> Visitor<'a> {

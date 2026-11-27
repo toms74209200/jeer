@@ -176,6 +176,7 @@ fn format_cleaned(source: &str, unit: &Unit) -> Result<String, Unformatted> {
                     |tokens| javadoc::writer::render(&tokens, flavor, column, max_width),
                 )
             }
+            Some(visitor::Marked::Unsupported) => text.to_owned(),
             Some(visitor::Marked::LineComment) => text
                 .split('\n')
                 .map(|line| {
@@ -577,6 +578,22 @@ mod tests {
             (
                 include_str!("../tests/fixtures/gjf/javadoc-markdown-paragraphs/input.java"),
                 include_str!("../tests/fixtures/gjf/javadoc-markdown-paragraphs/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-heading/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-heading/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-setext-heading/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-setext-heading/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-thematic-break/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-thematic-break/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-indented-code/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-indented-code/expected.java"),
             ),
             (
                 include_str!("../tests/fixtures/gjf/javadoc-literal-lt/input.java"),

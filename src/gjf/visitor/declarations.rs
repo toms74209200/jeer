@@ -218,10 +218,13 @@ impl<'a> Visitor<'a> {
         match javadoc.map(|tok| (tok.kind, tok.position, tok.text.as_str())) {
             Some((TokKind::Comment(CommentKind::MarkdownDoc, _), position, comment)) => {
                 let text = crate::gjf::javadoc::text::markdown_comment_text(comment);
-                let positions =
-                    crate::gjf::javadoc::markdown::parse(&text).ok_or(Unformatted::Deferred)?;
-                self.markdown_positions
-                    .insert(position, Marked::Javadoc { text, positions });
+                let marked = match crate::gjf::javadoc::markdown::parse(&text)
+                    .ok_or(Unformatted::Deferred)?
+                {
+                    Ok(positions) => Marked::Javadoc { text, positions },
+                    Err(crate::gjf::javadoc::markdown::Unsupported) => Marked::Unsupported,
+                };
+                self.markdown_positions.insert(position, marked);
                 Ok(())
             }
             Some((TokKind::Comment(CommentKind::Line, _), position, _)) => {
