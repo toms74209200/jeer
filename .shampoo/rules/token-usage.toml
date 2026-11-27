@@ -1,4 +1,4 @@
-rule = "The tokens a task spends are observed: scripts/token-usage.sh sums the branch's usage from the session transcripts into out/token-usage/<branch>.json, with tokens per changed line of src, and the PR body reports it (pull-requests policy, docs/development.md §8.1)."
+rule = "The tokens a task spends are observed: scripts/token-usage.sh sums the branch's usage from the session transcripts into out/token-usage/<branch>.json, with tokens per changed line of src, records it as the branch's line in the open issue labelled token-usage-records, and the PR body reports it (pull-requests policy, docs/development.md §8.1)."
 check = "token-usage"
 transitions = ["task"]
 judge = { exit = { other = "workflow-failure" } }
