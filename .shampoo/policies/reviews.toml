@@ -1,8 +1,0 @@
-review = true
-text = '''
-A review reports each class of finding whole, in one round.
-- When a finding is one case of a class (a node kind the port misses, a call site that skips a step, a task that spans two module roots), the reviewer checks the diff and the reference within the task's Done-when for that class and lists every case it finds; cases beyond the Done-when are one finding that asks for a task file
-- A later round reports every case it finds; a case of a class an earlier round reported is one finding that names the class and lists all its remaining cases
-- A fix covers every case of the class it fixes, not only the listed ones: the fixer checks the diff and the reference for the rest before asking for the next review
-- A finding names the reference it rests on (the oracle's output, a line of GJF or Spotless, a policy line), so the fix does not have to guess
-- A change to a policy or rule is reviewed as a procedure: for every step it asks for, the review checks who does it, in which task, branch, PR or commit, and how a later review sees that it was done. Before the first review, the author records that walk in the body of the commit that changes the rule, one line per step: who, where, and how a review sees it'''
