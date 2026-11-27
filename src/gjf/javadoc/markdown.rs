@@ -248,11 +248,27 @@ fn inlines(text: &str, from: usize, brackets: Vec<Bracket>) -> Vec<(usize, Token
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Block {
     Document,
-    List { marker: char },
-    Item { indent: usize, content: usize },
+    List {
+        marker: char,
+    },
+    Item {
+        indent: usize,
+        content: usize,
+    },
     Quote,
-    Paragraph { definition: Definition, first: bool },
-    Heading { inline: usize },
+    Paragraph {
+        definition: Definition,
+        first: bool,
+    },
+    Heading {
+        inline: usize,
+    },
+    Fence {
+        character: char,
+        length: usize,
+        indent: usize,
+        closing: Option<usize>,
+    },
 }
 
 struct Open {
@@ -302,6 +318,7 @@ struct Parser<'a> {
 enum Start {
     Blocks(Vec<Block>, usize),
     Heading(usize),
+    Fence(Block, usize),
 }
 
 impl<'a> Parser<'a> {
@@ -354,15 +371,81 @@ impl<'a> Parser<'a> {
                 Block::Paragraph { first: true, .. } => None,
                 Block::Paragraph { first: false, .. } => Some(Kind::ParagraphClose),
                 Block::Heading { .. } => Some(Kind::HeaderClose),
+                Block::Fence { .. } => None,
             };
             let lines = match open.block {
-                Block::Paragraph { .. } => open.lines,
+                Block::Paragraph { .. } => open.lines.clone(),
                 Block::Heading { inline } => vec![(inline, end)],
-                Block::Document | Block::List { .. } | Block::Item { .. } | Block::Quote => {
-                    Vec::new()
-                }
+                Block::Document
+                | Block::List { .. }
+                | Block::Item { .. }
+                | Block::Quote
+                | Block::Fence { .. } => Vec::new(),
             };
             let text = self.text;
+            let fenced = match open.block {
+                Block::Fence {
+                    character,
+                    length,
+                    indent,
+                    closing,
+                } => {
+                    let at = open.start.unwrap_or(end) + indent;
+                    let first = open.lines.first().copied().unwrap_or((at, at));
+                    let rest = open.lines.get(1..).unwrap_or(&[]);
+                    let info = text[first.0..first.1].trim_matches(|c: char| c <= ' ');
+                    let mut chars = info.chars().peekable();
+                    let unescaped: String = std::iter::from_fn(|| {
+                        let c = chars.next()?;
+                        Some(match (c, chars.peek()) {
+                            ('\\', Some(next)) if ESCAPABLE.contains(*next) => {
+                                chars.next().unwrap_or(c)
+                            }
+                            _ => c,
+                        })
+                    })
+                    .collect();
+                    let literal: String = rest
+                        .iter()
+                        .map(|&(from, to)| format!("{}\n", &text[from..to]))
+                        .collect();
+                    let fence = |count: usize| character.to_string().repeat(count);
+                    vec![
+                        (
+                            at,
+                            Token::from((Kind::MarkdownFencedCodeBlock, &text[at..end])),
+                        ),
+                        (
+                            at,
+                            Token {
+                                kind: Kind::FenceStart,
+                                value: fence(length) + &unescaped,
+                            },
+                        ),
+                        (
+                            at,
+                            Token {
+                                kind: Kind::FenceLiteral,
+                                value: literal,
+                            },
+                        ),
+                        (
+                            at,
+                            Token {
+                                kind: Kind::FenceEnd,
+                                value: fence(closing.unwrap_or(length)),
+                            },
+                        ),
+                    ]
+                }
+                Block::Document
+                | Block::List { .. }
+                | Block::Item { .. }
+                | Block::Quote
+                | Block::Paragraph { .. }
+                | Block::Heading { .. } => Vec::new(),
+            };
+            self.events.extend(fenced);
             let content = lines
                 .iter()
                 .map(|&(from, to)| &text[from..to])
@@ -414,7 +497,9 @@ impl<'a> Parser<'a> {
         let starts: Vec<(Block, usize)> = opened.flatten().collect();
         starts.into_iter().try_for_each(|(block, start)| {
             let token = match block {
-                Block::Document | Block::Paragraph { first: true, .. } => None,
+                Block::Document | Block::Paragraph { first: true, .. } | Block::Fence { .. } => {
+                    None
+                }
                 Block::Quote => {
                     let marker = text[start..].find('>').map(|offset| start + offset);
                     self.events.extend(marker.map(|at| {
@@ -463,19 +548,36 @@ impl<'a> Parser<'a> {
             self.offset + self.cursor.index,
             self.offset + self.line.len(),
         );
-        if let Some(Open {
-            block: Block::Paragraph {
-                definition: state, ..
-            },
-            lines,
-            ..
-        }) = self.open.last_mut()
-        {
-            *state = match definition(*state, content) {
-                Definition::Found => return Err(Stop::Unsupported),
-                next => next,
-            };
-            lines.push(span);
+        match self.open.last_mut() {
+            Some(Open {
+                block:
+                    Block::Paragraph {
+                        definition: state, ..
+                    },
+                lines,
+                ..
+            }) => {
+                *state = match definition(*state, content) {
+                    Definition::Found => return Err(Stop::Unsupported),
+                    next => next,
+                };
+                lines.push(span);
+            }
+            Some(Open {
+                block: Block::Fence { .. },
+                lines,
+                ..
+            }) => lines.push(span),
+            Some(Open {
+                block:
+                    Block::Document
+                    | Block::List { .. }
+                    | Block::Item { .. }
+                    | Block::Quote
+                    | Block::Heading { .. },
+                ..
+            })
+            | None => {}
         }
         self.add_source_spans()
     }
@@ -484,7 +586,13 @@ impl<'a> Parser<'a> {
         let contains = |parent: Block| match (parent, block) {
             (Block::Document | Block::Item { .. } | Block::Quote, _) => true,
             (Block::List { .. }, Block::Item { .. }) => true,
-            (Block::List { .. } | Block::Paragraph { .. } | Block::Heading { .. }, _) => false,
+            (
+                Block::List { .. }
+                | Block::Paragraph { .. }
+                | Block::Heading { .. }
+                | Block::Fence { .. },
+                _,
+            ) => false,
         };
         while self.open.last().is_some_and(|open| !contains(open.block)) {
             self.close(1);
@@ -528,6 +636,16 @@ impl<'a> Parser<'a> {
         let paragraph = matches!(matched, Block::Paragraph { .. });
         let active = self.open.last().map(|open| open.block);
         let hashes = run('#');
+        let opening = content.len() - content.trim_start_matches(['`', '~']).len();
+        let (ticks, tildes) = (
+            content[..opening].matches('`').count(),
+            content[..opening].matches('~').count(),
+        );
+        let fence = match (ticks >= 3 && tildes == 0, tildes >= 3 && ticks == 0) {
+            (true, _) if !content[ticks..].contains('`') => Some(('`', ticks, &content[ticks..])),
+            (_, true) => Some(('~', tildes, &content[tildes..])),
+            (true, _) | (false, false) => None,
+        };
         let underline = content
             .chars()
             .next()
@@ -559,7 +677,18 @@ impl<'a> Parser<'a> {
                 Ok(Some(Start::Heading(self.offset + next.index + hashes)))
             }
             false if paragraph && underline => Err(Stop::Unsupported),
-            false if run('~') >= 3 || run('`') >= 3 => Err(Stop::NotPorted),
+            false if let Some((character, length, rest)) = fence => match rest.contains('&') {
+                true => Err(Stop::NotPorted),
+                false => Ok(Some(Start::Fence(
+                    Block::Fence {
+                        character,
+                        length,
+                        indent,
+                        closing: None,
+                    },
+                    next.index + length,
+                ))),
+            },
             false if thematic => Err(Stop::Unsupported),
             false => self.list(matched, paragraph, next, indent),
         }
@@ -618,9 +747,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn continued(&mut self, matches: usize) -> usize {
+    fn continued(&mut self, matches: usize) -> Matched {
         let Some(open) = self.open.get(matches) else {
-            return matches;
+            return Matched::Count(matches);
         };
         let (block, children) = (open.block, open.children);
         let space = self.space();
@@ -644,15 +773,49 @@ impl<'a> Parser<'a> {
             (Block::Item { .. }, Space::Content { .. }) => None,
             (Block::Paragraph { .. }, Space::Content { .. }) => Some(Continue::Here),
             (Block::Paragraph { .. }, Space::Blank(_)) | (Block::Heading { .. }, _) => None,
+            (
+                Block::Fence {
+                    character,
+                    length,
+                    indent: fence,
+                    ..
+                },
+                Space::Content { next, indent },
+            ) if indent < 4 => {
+                let rest = &self.line[next.index..];
+                let fences = rest.len() - rest.trim_start_matches(character).len();
+                let closes =
+                    fences >= length && rest[fences..].trim_start_matches([' ', '\t']).is_empty();
+                match closes {
+                    true => Some(Continue::Finish(Block::Fence {
+                        character,
+                        length,
+                        indent: fence,
+                        closing: Some(fences),
+                    })),
+                    false => Some(Continue::Spaces(fence)),
+                }
+            }
+            (Block::Fence { indent, .. }, _) => Some(Continue::Spaces(indent)),
         };
         let Some(target) = target else {
-            return matches;
+            return Matched::Count(matches);
         };
         self.open[matches].source = self.cursor.index;
         match target {
             Continue::Here => {}
             Continue::Index(next) => self.cursor = next,
             Continue::Column(next, column) => self.seek_column(next, column),
+            Continue::Spaces(indent) => {
+                let start = self.cursor.index;
+                self.cursor = self.moved(self.cursor, |at| {
+                    at.index - start >= indent || !self.line[at.index..].starts_with(' ')
+                });
+            }
+            Continue::Finish(fence) => {
+                self.open[matches].block = fence;
+                return Matched::Finished(matches);
+            }
         }
         self.continued(matches + 1)
     }
@@ -660,9 +823,17 @@ impl<'a> Parser<'a> {
     fn starts(&mut self, matched: Block, opened: Opened) -> Result<Outcome, Stop> {
         let last = self.cursor.index;
         let space = self.space();
-        let start = match space {
-            Space::Blank(_) => None,
-            Space::Content { next, indent } => {
+        let start = match (matched, space) {
+            (Block::Fence { .. }, _) => {
+                return Ok(Outcome {
+                    matched,
+                    opened,
+                    last,
+                    space,
+                });
+            }
+            (_, Space::Blank(_)) => None,
+            (_, Space::Content { next, indent }) => {
                 let letter = self.line[next.index..].starts_with(char::is_alphabetic);
                 match indent < 4 && letter {
                     true => None,
@@ -697,6 +868,10 @@ impl<'a> Parser<'a> {
                 self.cursor = self.moved(next, |_| false);
                 vec![Block::Heading { inline }]
             }
+            Start::Fence(fence, index) => {
+                self.cursor = self.moved(next, |at| at.index >= index);
+                vec![fence]
+            }
         };
         let matched = blocks.into_iter().fold(matched, |_, block| {
             self.add_child(block, source);
@@ -706,7 +881,10 @@ impl<'a> Parser<'a> {
             Block::List { .. } | Block::Item { .. } | Block::Quote => {
                 self.starts(matched, Opened::Blocks)
             }
-            Block::Document | Block::Paragraph { .. } | Block::Heading { .. } => Ok(Outcome {
+            Block::Document
+            | Block::Paragraph { .. }
+            | Block::Heading { .. }
+            | Block::Fence { .. } => Ok(Outcome {
                 matched,
                 opened: Opened::Blocks,
                 last: self.cursor.index,
@@ -722,7 +900,14 @@ impl<'a> Parser<'a> {
             index: 0,
             column: 0,
         };
-        let matches = self.continued(1);
+        let matches = match self.continued(1) {
+            Matched::Count(matches) => matches,
+            Matched::Finished(fence) => {
+                self.add_source_spans()?;
+                self.close(self.open.len() - fence);
+                return Ok(());
+            }
+        };
         let unmatched = self.open.len() - matches;
         let Outcome {
             matched,
@@ -744,7 +929,7 @@ impl<'a> Parser<'a> {
                     .for_each(|open| open.source = last);
                 self.add_line()
             }
-            (_, _, Block::Paragraph { .. } | Block::Heading { .. }, _) => {
+            (_, _, Block::Paragraph { .. } | Block::Heading { .. } | Block::Fence { .. }, _) => {
                 self.close(unmatched);
                 self.add_line()
             }
@@ -784,6 +969,13 @@ enum Continue {
     Here,
     Index(Cursor),
     Column(Cursor, usize),
+    Spaces(usize),
+    Finish(Block),
+}
+
+enum Matched {
+    Count(usize),
+    Finished(usize),
 }
 
 pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
@@ -805,10 +997,10 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
             column: 0,
         },
     };
-    let lines = text.split('\n').scan(0, |start, line| {
+    let lines = text.split_inclusive('\n').scan(0, |start, line| {
         let at = *start;
-        *start += line.len() + 1;
-        Some((at, line))
+        *start += line.len();
+        Some((at, line.strip_suffix('\n').unwrap_or(line)))
     });
     let parsed = lines
         .map(|(offset, line)| parser.parse_line(line, offset))
@@ -949,7 +1141,6 @@ mod tests {
             "a | b",
             "a <ul> b",
             "`a \u{2028}b`",
-            "```",
             "[a]: <b>",
             "[a]: <b",
             "[a]: <b<c>",
@@ -957,7 +1148,7 @@ mod tests {
             "-\ta",
             "-  - a\n    \t- -x",
             "a\0",
-            "~~~",
+            "~~~ a&amp;b",
         ];
         for text in cases {
             let positions = parse(text);
@@ -1211,6 +1402,43 @@ mod tests {
                     (2, vec![token(Kind::MarkdownBlockQuoteOpen, "> ")]),
                     (5, vec![token(Kind::MarkdownBlockQuoteClose, "")]),
                 ],
+            ),
+        ];
+        for (text, expected) in cases {
+            let positions = parse(text);
+
+            let expected = Positions(expected.into_iter().collect());
+            assert_eq!(positions, Some(Ok(expected)), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn when_parse_with_a_fenced_code_block_then_returns_its_parts_at_its_start() {
+        let token = |kind: Kind, value: &str| Token::from((kind, value));
+        let cases = [
+            (
+                "```a\\_b\nx\n````",
+                vec![(
+                    0,
+                    vec![
+                        token(Kind::MarkdownFencedCodeBlock, "```a\\_b\nx\n````"),
+                        token(Kind::FenceStart, "```a_b"),
+                        token(Kind::FenceLiteral, "x\n"),
+                        token(Kind::FenceEnd, "````"),
+                    ],
+                )],
+            ),
+            (
+                " ~~~\n  y",
+                vec![(
+                    1,
+                    vec![
+                        token(Kind::MarkdownFencedCodeBlock, "~~~\n  y"),
+                        token(Kind::FenceStart, "~~~"),
+                        token(Kind::FenceLiteral, " y\n"),
+                        token(Kind::FenceEnd, "~~~"),
+                    ],
+                )],
             ),
         ];
         for (text, expected) in cases {

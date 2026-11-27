@@ -614,6 +614,10 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/javadoc-markdown-blockquote/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-fenced-code/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-fenced-code/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/javadoc-literal-lt/input.java"),
                 include_str!("../tests/fixtures/gjf/javadoc-literal-lt/expected.java"),
             ),
@@ -1073,7 +1077,7 @@ mod tests {
     #[test]
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
-            "/// ~~~\n/// x\n/// ~~~\nclass A {}\n",
+            "/// a <b>x</b>\nclass A {}\n",
             "class A { <T> @B int f() { return 0; } }\n",
             "class A { void f(A this) {} }\n",
             "class A { int @B [] x; }\n",
@@ -1246,6 +1250,74 @@ mod tests {
     #[test]
     fn when_format_with_markdown_javadoc_then_returns_the_oracle_output() {
         let cases = [
+            (
+                "class A {\n  /// ```\n  /// x\n  ///\n  void f() {}\n}\n",
+                "class A {\n  /// ```\n  /// x\n  /// ```\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// - a\n  ///\n  ///   ```\n  ///   x\n  ///\n  ///\n  void f() {}\n}\n",
+                "class A {\n  /// - a\n  ///\n  ///   ```\n  ///   x\n  ///\n  ///   ```\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// Text.\n  ///\n  /// > ```\n  /// > quoted\n  /// > ```\n  void f() {}\n}\n",
+                "class A {\n  /// Text.\n  ///\n  /// > ```\n  /// > quoted\n  /// > ```\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// > ```\n  /// > quoted\n  /// > ```\n  void f() {}\n}\n",
+                "class A {\n  /// >\n  /// >\n  /// > ```\n  /// > quoted\n  /// > ```\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// Text with enough words after it that the formatter has to wrap this line onto the next one\n  /// ```\n  /// code\n  /// ```\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// Text with enough words after it that the formatter has to wrap this line onto the next one\n  ///\n  /// ```\n  /// code\n  /// ```\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// ```\n  /// a\n  ///\n  /// b\n  /// ```\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// ```\n  /// a\n  ///\n  /// b\n  /// ```\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// - item\n  ///\n  ///   ```\n  ///   code\n  ///   ```\n  /// - next\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// - item\n  ///\n  ///   ```\n  ///   code\n  ///   ```\n  ///\n  /// - next\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// > ```\n  /// > quoted   code\n  /// > ```\n  /// > after with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// >\n  /// >\n  /// > ```\n  /// > quoted   code\n  /// > ```\n  /// >\n  /// > after with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  ///   ```\n  ///   a\n  ///     b\n  ///  c\n  ///   ```\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// ```\n  /// a\n  ///   b\n  /// c\n  /// ```\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// ```  info\\_with\\*escapes  \n  /// x\n  /// ```\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// ```info_with*escapes\n  /// x\n  /// ```\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// ```\n  /// x\n  /// `````\n  /// after with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// ```\n  /// x\n  /// `````\n  ///\n  /// after with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// ~~~\n  /// ```\n  /// ~~~\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// ~~~\n  /// ```\n  /// ~~~\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// ```\n  /// x\n  /// ``\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// ```\n  /// x\n  /// ``\n  /// ```\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// ``` a`b\n  /// not a fence with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// ``` a`b not a fence with enough words after it that the formatter has to wrap this line onto\n  /// the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// ~~~~ java  \n  /// int x;\n  /// ~~~~\n  /// after with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// ~~~~java\n  /// int x;\n  /// ~~~~\n  ///\n  /// after with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// Before with enough words after it that the formatter has to wrap this line onto the next one\n  /// ```\n  /// code   kept\n  ///   indented\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// Before with enough words after it that the formatter has to wrap this line onto the next one\n  ///\n  /// ```\n  /// code   kept\n  ///   indented\n  /// ```\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// ```\n  /// xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  /// ```\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// ```\n  /// xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  /// ```\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
             (
                 "class A {\n  /// > quoted\n  ///\n  /// paragraph after with enough words after it that the formatter has to wrap this quote onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
                 "class A {\n  /// > quoted\n  ///\n  /// paragraph after with enough words after it that the formatter has to wrap this quote onto the\n  /// next line\n  int f(int x) {\n    return x;\n  }\n}\n",

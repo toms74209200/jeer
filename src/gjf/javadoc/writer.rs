@@ -199,7 +199,27 @@ pub fn render(
             | Kind::OptionalLineBreak
             | Kind::MarkdownCodeSpanStart
             | Kind::MarkdownCodeSpanEnd
-            | Kind::BlockQuoteMarker => {}
+            | Kind::BlockQuoteMarker
+            | Kind::MarkdownFencedCodeBlock => {}
+            Kind::FenceStart => {
+                if !writer.at_start_of_line {
+                    writer.requested = writer.requested.max(Requested::BlankLine);
+                }
+                writer.flush_whitespace();
+                writer.output.push_str(&token.value);
+            }
+            Kind::FenceLiteral => {
+                for line in token.value.lines() {
+                    writer.newline();
+                    writer.output.push_str(line);
+                }
+            }
+            Kind::FenceEnd => {
+                writer.newline();
+                writer.output.push_str(&token.value);
+                writer.wrote_anything_significant = true;
+                writer.requested = writer.requested.max(Requested::BlankLine);
+            }
             Kind::MarkdownBlockQuoteOpen => {
                 if !writer.at_start_of_line {
                     writer.requested = writer.requested.max(Requested::Newline);

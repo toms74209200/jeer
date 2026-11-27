@@ -34,6 +34,10 @@ pub enum Kind {
     MarkdownBlockQuoteOpen,
     MarkdownBlockQuoteClose,
     BlockQuoteMarker,
+    MarkdownFencedCodeBlock,
+    FenceStart,
+    FenceLiteral,
+    FenceEnd,
     Literal,
 }
 
@@ -136,10 +140,10 @@ impl State<'_> {
             Flavor::Markdown(positions) => &positions[position],
         };
         let consumed = tokens.iter().try_fold(0, |consumed, token| {
-            let kind = match token.kind {
+            let (kind, value) = match token.kind {
                 Kind::MarkdownCodeSpanStart => {
                     self.stack.push(Context::MarkdownCode);
-                    Kind::Literal
+                    (Kind::Literal, token.value.as_str())
                 }
                 Kind::MarkdownCodeSpanEnd => {
                     let open = self
@@ -147,11 +151,11 @@ impl State<'_> {
                         .iter()
                         .rposition(|open| *open == Context::MarkdownCode);
                     self.stack.truncate(open.unwrap_or(self.stack.len()));
-                    Kind::Literal
+                    (Kind::Literal, token.value.as_str())
                 }
                 Kind::MarkdownBlockQuoteOpen => {
                     self.stack.push(Context::BlockQuote);
-                    token.kind
+                    (token.kind, token.value.as_str())
                 }
                 Kind::MarkdownBlockQuoteClose => {
                     let open = self
@@ -159,17 +163,49 @@ impl State<'_> {
                         .iter()
                         .rposition(|open| *open == Context::BlockQuote);
                     self.stack.truncate(open.unwrap_or(self.stack.len()));
-                    token.kind
+                    (token.kind, token.value.as_str())
                 }
-                kind => kind,
+                Kind::FenceStart | Kind::FenceLiteral | Kind::FenceEnd => (token.kind, ""),
+                Kind::BeginJavadoc
+                | Kind::EndJavadoc
+                | Kind::FooterTagStart
+                | Kind::ListOpen
+                | Kind::ListClose
+                | Kind::ListItemOpen
+                | Kind::ListItemClose
+                | Kind::SnippetBegin
+                | Kind::SnippetEnd
+                | Kind::TableOpen
+                | Kind::TableClose
+                | Kind::BlockQuoteOpen
+                | Kind::BlockQuoteClose
+                | Kind::HeaderOpen
+                | Kind::HeaderClose
+                | Kind::Br
+                | Kind::MoeBegin
+                | Kind::MoeEnd
+                | Kind::HtmlComment
+                | Kind::OptionalLineBreak
+                | Kind::ParagraphOpen
+                | Kind::ParagraphClose
+                | Kind::PreOpen
+                | Kind::PreClose
+                | Kind::CodeOpen
+                | Kind::CodeClose
+                | Kind::Whitespace
+                | Kind::ForcedNewline
+                | Kind::MarkdownHardLineBreak
+                | Kind::BlockQuoteMarker
+                | Kind::MarkdownFencedCodeBlock
+                | Kind::Literal => (token.kind, token.value.as_str()),
             };
             self.tokens.push(Token {
                 kind,
                 value: token.value.clone(),
             });
             text[position + consumed..]
-                .starts_with(&token.value)
-                .then_some(consumed + token.value.len())
+                .starts_with(value)
+                .then_some(consumed + value.len())
         })?;
         match consumed {
             0 => Some(0),
@@ -465,6 +501,10 @@ fn join_literals(input: Vec<Token>) -> Vec<Token> {
             | Kind::MarkdownBlockQuoteOpen
             | Kind::MarkdownBlockQuoteClose
             | Kind::BlockQuoteMarker
+            | Kind::MarkdownFencedCodeBlock
+            | Kind::FenceStart
+            | Kind::FenceLiteral
+            | Kind::FenceEnd
             | Kind::ForcedNewline => output.extend(tokens.next()),
         }
     }
