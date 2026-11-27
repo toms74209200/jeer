@@ -4,8 +4,9 @@ use super::super::input::{CommentKind, TokKind};
 use super::super::output::BlankLine;
 use super::statements::Collapse;
 use super::{
-    BREAK, CLOSE, Direction, FILL, FILL_SPACE, FORCED, MINUS_FOUR, MINUS_TWO, OPEN_PLUS_FOUR,
-    OPEN_PLUS_TWO, OPEN_ZERO, PLUS_FOUR, PLUS_TWO, SPACE, SPACE_BREAK, Visitor, ZERO,
+    BREAK, CLOSE, Direction, FILL, FILL_SPACE, FORCED, MINUS_FOUR, MINUS_TWO, Marked,
+    OPEN_PLUS_FOUR, OPEN_PLUS_TWO, OPEN_ZERO, PLUS_FOUR, PLUS_TWO, SPACE, SPACE_BREAK, Visitor,
+    ZERO,
 };
 use crate::lexer::token::{Keyword, Punct, Token, TokenKind};
 use crate::parser::syntax::{Element, Node, NodeKind};
@@ -214,10 +215,18 @@ impl<'a> Visitor<'a> {
                     .rev()
                     .find(|tok| tok.text.starts_with("/**") || tok.text.starts_with("///"))
             });
-        match javadoc.map(|tok| (tok.kind, tok.position)) {
-            Some((TokKind::Comment(CommentKind::MarkdownDoc, _), _)) => Err(Unformatted::Deferred),
-            Some((TokKind::Comment(CommentKind::Line, _), position)) => {
-                self.markdown_positions.insert(position);
+        match javadoc.map(|tok| (tok.kind, tok.position, tok.text.as_str())) {
+            Some((TokKind::Comment(CommentKind::MarkdownDoc, _), position, comment)) => {
+                let text = crate::gjf::javadoc::text::markdown_comment_text(comment);
+                let positions =
+                    crate::gjf::javadoc::markdown::parse(&text).ok_or(Unformatted::Deferred)?;
+                self.markdown_positions
+                    .insert(position, Marked::Javadoc { text, positions });
+                Ok(())
+            }
+            Some((TokKind::Comment(CommentKind::Line, _), position, _)) => {
+                self.markdown_positions
+                    .insert(position, Marked::LineComment);
                 Ok(())
             }
             Some(_) | None => Ok(()),

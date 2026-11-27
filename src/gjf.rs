@@ -140,10 +140,12 @@ fn format_cleaned(source: &str, unit: &Unit) -> Result<String, Unformatted> {
         .iter()
         .flat_map(|token| token.before.iter().chain(&token.after));
     let javadocs: HashMap<&str, Vec<javadoc::lexer::Token>> = comments
+        .clone()
         .filter(|tok| matches!(tok.kind, TokKind::Comment(CommentKind::Doc, _)))
         .filter_map(|tok| {
             let text = javadoc::text::classic_comment_text(&tok.text);
-            javadoc::lexer::lex(&text).map(|tokens| (tok.text.as_str(), tokens))
+            javadoc::lexer::lex(&text, javadoc::lexer::Flavor::Classic)
+                .map(|tokens| (tok.text.as_str(), tokens))
         })
         .collect();
     let tree = significant(&unit.tree);
@@ -154,17 +156,27 @@ fn format_cleaned(source: &str, unit: &Unit) -> Result<String, Unformatted> {
         hug_points: std::collections::HashMap::new(),
         not_huggable: std::collections::HashSet::new(),
         type_annotations: std::collections::HashSet::new(),
-        markdown_positions: std::collections::HashSet::new(),
+        markdown_positions: std::collections::HashMap::new(),
     };
     visitor.compilation_unit(&tree)?;
     let (doc, blank_lines) = visitor.builder.build()?;
     let markdown = visitor.markdown_positions;
     let rewrite = |text: &str, position: usize, max_width: usize, column: usize| {
-        let formatted = javadocs
-            .get(text)
-            .map(|tokens| javadoc::writer::render(tokens, column, max_width));
-        match markdown.contains(&position) {
-            true => text
+        let formatted = javadocs.get(text).map(|tokens| {
+            javadoc::writer::render(tokens, javadoc::lexer::Flavor::Classic, column, max_width)
+        });
+        match markdown.get(&position) {
+            Some(visitor::Marked::Javadoc {
+                text: comment,
+                positions,
+            }) => {
+                let flavor = javadoc::lexer::Flavor::Markdown(positions);
+                javadoc::lexer::lex(comment, flavor).map_or_else(
+                    || text.to_owned(),
+                    |tokens| javadoc::writer::render(&tokens, flavor, column, max_width),
+                )
+            }
+            Some(visitor::Marked::LineComment) => text
                 .split('\n')
                 .map(|line| {
                     line.trim_matches(char::is_whitespace)
@@ -172,7 +184,7 @@ fn format_cleaned(source: &str, unit: &Unit) -> Result<String, Unformatted> {
                 })
                 .collect::<Vec<_>>()
                 .join(&format!("\n{}", " ".repeat(column))),
-            false => comments::rewrite(formatted.as_deref().unwrap_or(text), max_width, column),
+            None => comments::rewrite(formatted.as_deref().unwrap_or(text), max_width, column),
         }
     };
     let layout = doc::solve(&doc, 100, &rewrite);
@@ -557,6 +569,14 @@ mod tests {
             (
                 include_str!("../tests/fixtures/gjf/javadoc-markdown-short/input.java"),
                 include_str!("../tests/fixtures/gjf/javadoc-markdown-short/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-text/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-text/expected.java"),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-paragraphs/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-paragraphs/expected.java"),
             ),
             (
                 include_str!("../tests/fixtures/gjf/javadoc-literal-lt/input.java"),
@@ -1018,7 +1038,7 @@ mod tests {
     #[test]
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
-            "/// doc\nclass A {}\n",
+            "/// - item\nclass A {}\n",
             "class A { <T> @B int f() { return 0; } }\n",
             "class A { void f(A this) {} }\n",
             "class A { int @B [] x; }\n",
@@ -1185,6 +1205,35 @@ mod tests {
                 .and_then(|line| line.parse::<usize>().ok());
 
             assert_eq!(line.err(), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn when_format_with_markdown_javadoc_then_returns_the_oracle_output() {
+        let cases = [
+            (
+                "class A {\n  /// First line\\\n  /// second line with \\* an escaped star and a long tail that makes this line wrap past the column limit.\n  void f() {}\n}\n",
+                "class A {\n  /// First line\\\n  /// second line with \\* an escaped star and a long tail that makes this line wrap past the column\n  /// limit.\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// Does it.\n  ///\n  /// @param a the first value, described at a length that goes past the column limit of the line here\n  ///\n  ///   still the first value\n  /// @return nothing\n  int f(int a) {\n    return 0;\n  }\n}\n",
+                "class A {\n  /// Does it.\n  ///\n  /// @param a the first value, described at a length that goes past the column limit of the line\n  ///   here\n  ///\n  ///   still the first value\n  /// @return nothing\n  int f(int a) {\n    return 0;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  ///  Text {@code open\n  ///    more\n  void f() {}\n}\n",
+                "class A {\n  ///  Text {@code open\n  ///    more\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// Ends with a backslash \\\n  void f() {}\n\n  /// Short.\n  void g() {}\n}\n",
+                "class A {\n  /// Ends with a backslash \\\n  void f() {}\n\n  /// Short.\n  void g() {}\n}\n",
+            ),
+        ];
+        for (input, expected) in cases {
+            let unit = parser::parse(input).ok();
+
+            let formatted = unit.map(|unit| format(input, &unit));
+
+            assert_eq!(formatted, Some(Ok(expected.to_owned())), "{input}");
         }
     }
 }

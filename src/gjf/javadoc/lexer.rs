@@ -28,6 +28,7 @@ pub enum Kind {
     CodeClose,
     Whitespace,
     ForcedNewline,
+    MarkdownHardLineBreak,
     Literal,
 }
 
@@ -62,6 +63,12 @@ const LETTER_OR_DIGIT: fn(char) -> bool = |c| {
 };
 
 pub const SPACE: fn(char) -> bool = |c| matches!(c, ' ' | '\t' | '\n' | '\u{b}' | '\u{c}' | '\r');
+
+#[derive(Debug, Clone, Copy)]
+pub enum Flavor<'a> {
+    Classic,
+    Markdown(&'a super::markdown::Positions),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Context {
@@ -108,13 +115,14 @@ fn tag(rest: &str, opening: &str, names: &[&str]) -> Option<usize> {
     (!tail.starts_with(WORD)).then_some(opening.len() + name.len() + end + 1)
 }
 
-struct State {
+struct State<'a> {
     tokens: Vec<Token>,
     stack: Vec<Context>,
     since_newline: bool,
+    flavor: Flavor<'a>,
 }
 
-impl State {
+impl State<'_> {
     fn classify(&mut self, rest: &str) -> Option<(Kind, usize)> {
         let preserve = self.stack.iter().any(PRESERVING);
         let either = |preserved: Kind, otherwise: Kind| match preserve {
@@ -129,6 +137,24 @@ impl State {
         if spaces > 0 {
             return Some((either(Kind::Literal, Kind::Whitespace), 1));
         }
+        let escape = match self.flavor {
+            Flavor::Classic => None,
+            Flavor::Markdown(_) => rest.strip_prefix('\\').and_then(|tail| {
+                let spaces = tail.len() - tail.trim_start_matches([' ', '\t']).len();
+                match tail[spaces..].starts_with('\n') {
+                    true => Some((Kind::MarkdownHardLineBreak, 1 + spaces + 1)),
+                    false => tail
+                        .chars()
+                        .next()
+                        .filter(|c| !"\n\r\u{85}\u{2028}\u{2029}".contains(*c))
+                        .map(|c| (Kind::Literal, 1 + c.len_utf8())),
+                }
+            }),
+        };
+        if let Some((kind, length)) = escape {
+            self.since_newline = kind == Kind::Literal;
+            return Some((kind, length));
+        }
         if let (false, Some(length)) = (self.since_newline, footer_tag(rest)) {
             self.since_newline = true;
             return self
@@ -142,7 +168,10 @@ impl State {
             .iter()
             .any(|open| matches!(open, Context::InlineTag | Context::Brace | Context::Snippet));
         let first = rest.chars().next().map_or(0, char::len_utf8);
-        let run = rest[first..].trim_start_matches(|c| !" \t\n@<{}*".contains(c));
+        let run = match self.flavor {
+            Flavor::Classic => rest[first..].trim_start_matches(|c| !" \t\n@<{}*".contains(c)),
+            Flavor::Markdown(_) => rest[first..].trim_start_matches(char::is_alphabetic),
+        };
         let literal = (Kind::Literal, rest.len() - run.len());
         let snippet = rest
             .strip_prefix("{@snippet")
@@ -245,24 +274,38 @@ impl State {
     }
 }
 
-pub fn lex(text: &str) -> Option<Vec<Token>> {
+pub fn lex(text: &str, flavor: Flavor) -> Option<Vec<Token>> {
+    let (begin, end) = match flavor {
+        Flavor::Classic => ("/**", "*/"),
+        Flavor::Markdown(_) => ("///", ""),
+    };
+    let at = |position: usize| match flavor {
+        Flavor::Classic => &[][..],
+        Flavor::Markdown(positions) => &positions[position],
+    };
     let mut state = State {
-        tokens: vec![Token::from((Kind::BeginJavadoc, "/**"))],
+        tokens: vec![Token::from((Kind::BeginJavadoc, begin))],
         stack: Vec::new(),
         since_newline: false,
+        flavor,
     };
     let mut rest = text;
     while !rest.is_empty() {
+        state.tokens.extend_from_slice(at(text.len() - rest.len()));
         let (kind, length) = state.classify(rest)?;
         state.tokens.push(Token::from((kind, &rest[..length])));
         rest = &rest[length..];
     }
+    state.tokens.extend_from_slice(at(text.len()));
     if !state.stack.is_empty() {
         return None;
     }
-    state.tokens.push(Token::from((Kind::EndJavadoc, "*/")));
+    state.tokens.push(Token::from((Kind::EndJavadoc, end)));
     let joined = join_literals(state.tokens);
-    let paragraphs = infer_paragraphs(joined);
+    let paragraphs = match flavor {
+        Flavor::Classic => infer_paragraphs(joined),
+        Flavor::Markdown(_) => joined,
+    };
     let linked = optionalize_after_links(paragraphs);
     Some(deindent_pre_code(linked))
 }
@@ -345,6 +388,7 @@ fn join_literals(input: Vec<Token>) -> Vec<Token> {
             | Kind::MoeEnd
             | Kind::HtmlComment
             | Kind::OptionalLineBreak
+            | Kind::MarkdownHardLineBreak
             | Kind::ForcedNewline => output.extend(tokens.next()),
         }
     }
