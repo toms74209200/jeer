@@ -13,7 +13,7 @@ found=$(for trace in "$1"/*.trace; do
 	awk -v test="$(basename "$trace" | sed 's/\.[0-9]*\.trace$//')" -v temp="$temp" -v root="$target" '
 	function allowed(path, call) {
 		if (path == "" || index(path, root) == 1 || index(path, temp) == 1) return 1
-		if (call == "mkdir" && index(root, path) == 1) return 1
+		if (call ~ /^mkdir(at)?$/ && index(root, path) == 1) return 1
 		if (path ~ /terminfo/) return 1
 		if (path == "/etc/ld.so.cache" || path == "/etc/ld.so.preload" || path ~ /^\/(usr\/)?lib(64|32|x32)?\//) return 1
 		if (path ~ /\/toolchains\/[^\/]+\/lib\//) return 1
