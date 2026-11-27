@@ -214,6 +214,20 @@ pub fn render(
                     writer.output.push_str(line);
                 }
             }
+            Kind::MarkdownTable => {
+                if !writer.at_start_of_line {
+                    writer.requested = writer.requested.max(Requested::BlankLine);
+                }
+                writer.flush_whitespace();
+                for (row, line) in token.value.lines().enumerate() {
+                    if row > 0 {
+                        writer.line_start();
+                    }
+                    writer.output.push_str(line);
+                }
+                writer.wrote_anything_significant = true;
+                writer.requested = writer.requested.max(Requested::BlankLine);
+            }
             Kind::FenceEnd => {
                 writer.newline();
                 writer.output.push_str(&token.value);

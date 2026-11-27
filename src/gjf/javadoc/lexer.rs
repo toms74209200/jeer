@@ -38,6 +38,7 @@ pub enum Kind {
     FenceStart,
     FenceLiteral,
     FenceEnd,
+    MarkdownTable,
     Literal,
 }
 
@@ -197,6 +198,7 @@ impl State<'_> {
                 | Kind::MarkdownHardLineBreak
                 | Kind::BlockQuoteMarker
                 | Kind::MarkdownFencedCodeBlock
+                | Kind::MarkdownTable
                 | Kind::Literal => (token.kind, token.value.as_str()),
             };
             self.tokens.push(Token {
@@ -505,6 +507,7 @@ fn join_literals(input: Vec<Token>) -> Vec<Token> {
             | Kind::FenceStart
             | Kind::FenceLiteral
             | Kind::FenceEnd
+            | Kind::MarkdownTable
             | Kind::ForcedNewline => output.extend(tokens.next()),
         }
     }

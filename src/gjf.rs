@@ -618,6 +618,10 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/javadoc-markdown-fenced-code/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-table/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-table/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/javadoc-literal-lt/input.java"),
                 include_str!("../tests/fixtures/gjf/javadoc-literal-lt/expected.java"),
             ),
@@ -1250,6 +1254,94 @@ mod tests {
     #[test]
     fn when_format_with_markdown_javadoc_then_returns_the_oracle_output() {
         let cases = [
+            (
+                "class A {\n  /// a|b\n  /// :-:\n  /// rest   text with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// a|b :-: rest text with enough words after it that the formatter has to wrap this line onto the\n  /// next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// | a | b |\n  /// |---||---|\n  /// rest   text with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// | a | b | |---||---| rest text with enough words after it that the formatter has to wrap this\n  /// line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// | a | b |\n  /// |--- ---|\n  /// rest   text with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// | a | b | |--- ---| rest text with enough words after it that the formatter has to wrap this\n  /// line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// | a |\n  /// |:|\n  /// rest   text with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// | a | |:| rest text with enough words after it that the formatter has to wrap this line onto\n  /// the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// a | b\n  /// -- --\n  /// rest   text with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// a | b\n  /// -- --\n  /// rest   text with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// Text.\n  ///\n  /// > | a | b |\n  /// > |---|---|\n  void f() {}\n}\n",
+                "class A {\n  /// Text.\n  ///\n  /// > | a | b |\n  /// > |---|---|\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// Intro   text\n  /// more   text\n  /// | a | b |\n  /// |---|---|\n  /// | 1 | 2 |\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// Intro text more text\n  ///\n  /// | a | b |\n  /// |---|---|\n  /// | 1 | 2 |\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// | a | b | c |\n  /// |:---|---:|:-:|\n  /// | 1 | 2 | 3 |\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// | a | b | c |\n  /// |:---|---:|:-:|\n  /// | 1 | 2 | 3 |\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// | a | b |\n  /// |---|---|\n  /// | 1 | 2 |\n  /// after\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// | a | b |\n  /// |---|---|\n  /// | 1 | 2 |\n  /// after\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// a \\| b | c\n  /// ---|---\n  /// x | y\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// a \\| b | c\n  /// ---|---\n  /// x | y\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// - item\n  ///\n  ///   | a | b |\n  ///   |---|---|\n  ///   | 1 | 2 |\n  /// - next\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// - item\n  ///\n  ///   | a | b |\n  ///   |---|---|\n  ///   | 1 | 2 |\n  ///\n  /// - next\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// > | a | b |\n  /// > |---|---|\n  /// > | 1 | 2 |\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// >\n  /// >\n  /// > | a | b |\n  /// > |---|---|\n  /// > | 1 | 2 |\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// | a |\n  ///     |---|\n  /// | 1 |\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// | a |\n  ///     |---|\n  /// | 1 |\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// | a |\n  /// | -x- |\n  /// rest   text with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// | a | | -x- | rest text with enough words after it that the formatter has to wrap this line\n  /// onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// | a | b |\n  /// |---|---|\n  /// lazy   row\n  /// more\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// | a | b |\n  /// |---|---|\n  /// lazy   row\n  /// more\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// | a | b |\n  /// |---|---|\n  /// | xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | y |\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// | a | b |\n  /// |---|---|\n  /// | xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | y |\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// a\n  /// |---|\n  /// rest   text with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// a |---| rest text with enough words after it that the formatter has to wrap this line onto the\n  /// next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// a | b\n  /// --- | ---\n  /// 1 | 2\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// a | b\n  /// --- | ---\n  /// 1 | 2\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// | a |\n  /// |---|\n  /// |\n  /// after   text with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// | a |\n  /// |---|\n  ///\n  /// | after text with enough words after it that the formatter has to wrap this line onto the next\n  /// one\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// | a |\n  /// |---|\n  /// | 1 |\n  ///\n  /// paragraph   after with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// | a |\n  /// |---|\n  /// | 1 |\n  ///\n  /// paragraph after with enough words after it that the formatter has to wrap this line onto the\n  /// next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// | a | b | c |\n  /// |---|---|\n  /// rest   text with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// | a | b | c | |---|---| rest text with enough words after it that the formatter has to wrap\n  /// this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// a | b | \n  /// ---|---|---\n  /// 1 | 2 | 3\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// a | b |\n  /// ---|---|---\n  /// 1 | 2 | 3\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
             (
                 "class A {\n  /// ```\n  /// x\n  ///\n  void f() {}\n}\n",
                 "class A {\n  /// ```\n  /// x\n  /// ```\n  void f() {}\n}\n",
