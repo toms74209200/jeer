@@ -274,8 +274,15 @@ impl<'a> Visitor<'a> {
                 | NodeKind::SwitchExpr
                 | NodeKind::TypePattern
         );
-        let mut pending: Vec<&Element> = node.children.iter().rev().collect();
-        while let (true, Some(element)) = (synced, pending.pop()) {
+        match synced {
+            true => self.sync_start(&node.children),
+            false => Ok(()),
+        }
+    }
+
+    pub(super) fn sync_start(&mut self, elements: &[Element]) -> Result<(), Unformatted> {
+        let mut pending: Vec<&Element> = elements.iter().rev().collect();
+        while let Some(element) = pending.pop() {
             match element {
                 Element::Token(token) => return self.builder.add(Op::Sync(token.start)),
                 Element::Node(child) => pending.extend(child.children.iter().rev()),

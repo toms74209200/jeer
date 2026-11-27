@@ -1159,4 +1159,32 @@ mod tests {
             assert_eq!(line.err(), expected, "{input}");
         }
     }
+
+    #[test]
+    fn when_gjf_pipeline_with_an_escaped_parameter_then_returns_the_oracle_line() {
+        let cases = [
+            (
+                "class A {\n  void m() {\n    try {\n    } catch (\n        \\u002f\\u002a c \\u002a\\u002f final Exception e) {}\n  }\n}\n",
+                "L5 google-java-format(google-java-format) error: did not generate token \"\\\"",
+            ),
+            (
+                "class A {\n  void m() {\n    try {\n    } catch (\n        \\u002f\\u002a c \\u002a\\u002f final A | B e) {}\n  }\n}\n",
+                "L5 google-java-format(google-java-format) error: did not generate token \"\\\"",
+            ),
+            (
+                "class A {\n  Object o =\n      (var a,\n          var \\u0062) -> a;\n}\n",
+                "L3 google-java-format(google-java-format) error: expected token: '\\'; generated b instead",
+            ),
+        ];
+        for (input, error) in cases {
+            let line =
+                crate::pipeline::Profile::Gjf.pipeline()(input).map_err(|rejection| rejection.line);
+            let expected = error
+                .strip_prefix('L')
+                .and_then(|rest| rest.split(' ').next())
+                .and_then(|line| line.parse::<usize>().ok());
+
+            assert_eq!(line.err(), expected, "{input}");
+        }
+    }
 }

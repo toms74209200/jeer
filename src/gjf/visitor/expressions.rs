@@ -1448,7 +1448,6 @@ impl<'a> Visitor<'a> {
                         ] => (modifiers, ty, None, name, dims),
                         _ => return Err(Unformatted::Deferred),
                     };
-                    self.sync(parameter)?;
                     self.declare_one(
                         Declaration::Local,
                         field_annotation_direction(modifiers),
