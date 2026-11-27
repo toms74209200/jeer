@@ -269,6 +269,9 @@ enum Block {
         indent: usize,
         closing: Option<usize>,
     },
+    Table {
+        lazy: bool,
+    },
 }
 
 struct Open {
@@ -278,6 +281,7 @@ struct Open {
     end: usize,
     children: usize,
     lines: Vec<(usize, usize)>,
+    spans: Vec<(usize, usize)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -319,6 +323,7 @@ enum Start {
     Blocks(Vec<Block>, usize),
     Heading(usize),
     Fence(Block, usize),
+    Table,
 }
 
 impl<'a> Parser<'a> {
@@ -371,8 +376,25 @@ impl<'a> Parser<'a> {
                 Block::Paragraph { first: true, .. } => None,
                 Block::Paragraph { first: false, .. } => Some(Kind::ParagraphClose),
                 Block::Heading { .. } => Some(Kind::HeaderClose),
-                Block::Fence { .. } => None,
+                Block::Fence { .. } | Block::Table { .. } => None,
             };
+            let start = open.start.unwrap_or(end);
+            let opening = match open.block {
+                Block::Paragraph { first: false, .. } => {
+                    Some(Token::from((Kind::ParagraphOpen, "")))
+                }
+                Block::Table { .. } => {
+                    Some(Token::from((Kind::MarkdownTable, &self.text[start..end])))
+                }
+                Block::Document
+                | Block::List { .. }
+                | Block::Item { .. }
+                | Block::Quote
+                | Block::Paragraph { first: true, .. }
+                | Block::Heading { .. }
+                | Block::Fence { .. } => None,
+            };
+            self.events.extend(opening.map(|token| (start, token)));
             let lines = match open.block {
                 Block::Paragraph { .. } => open.lines.clone(),
                 Block::Heading { inline } => vec![(inline, end)],
@@ -380,7 +402,8 @@ impl<'a> Parser<'a> {
                 | Block::List { .. }
                 | Block::Item { .. }
                 | Block::Quote
-                | Block::Fence { .. } => Vec::new(),
+                | Block::Fence { .. }
+                | Block::Table { .. } => Vec::new(),
             };
             let text = self.text;
             let fenced = match open.block {
@@ -443,7 +466,8 @@ impl<'a> Parser<'a> {
                 | Block::Item { .. }
                 | Block::Quote
                 | Block::Paragraph { .. }
-                | Block::Heading { .. } => Vec::new(),
+                | Block::Heading { .. }
+                | Block::Table { .. } => Vec::new(),
             };
             self.events.extend(fenced);
             let content = lines
@@ -485,6 +509,16 @@ impl<'a> Parser<'a> {
             let block = open.source.min(index);
             (length != block).then(|| {
                 open.end = offset + length;
+                match open.block {
+                    Block::Paragraph { .. } => open.spans.push((offset + block, offset + length)),
+                    Block::Document
+                    | Block::List { .. }
+                    | Block::Item { .. }
+                    | Block::Quote
+                    | Block::Heading { .. }
+                    | Block::Fence { .. }
+                    | Block::Table { .. } => {}
+                }
                 match open.start {
                     Some(_) => None,
                     None => {
@@ -497,9 +531,10 @@ impl<'a> Parser<'a> {
         let starts: Vec<(Block, usize)> = opened.flatten().collect();
         starts.into_iter().try_for_each(|(block, start)| {
             let token = match block {
-                Block::Document | Block::Paragraph { first: true, .. } | Block::Fence { .. } => {
-                    None
-                }
+                Block::Document
+                | Block::Paragraph { .. }
+                | Block::Fence { .. }
+                | Block::Table { .. } => None,
                 Block::Quote => {
                     let marker = text[start..].find('>').map(|offset| start + offset);
                     self.events.extend(marker.map(|at| {
@@ -512,9 +547,6 @@ impl<'a> Parser<'a> {
                     None
                 }
                 Block::List { .. } => Some(Token::from((Kind::ListOpen, ""))),
-                Block::Paragraph { first: false, .. } => {
-                    Some(Token::from((Kind::ParagraphOpen, "")))
-                }
                 Block::Heading { .. } => Some(Token::from((Kind::HeaderOpen, ""))),
                 Block::Item { indent, .. } => {
                     let at = start + indent;
@@ -574,7 +606,8 @@ impl<'a> Parser<'a> {
                     | Block::List { .. }
                     | Block::Item { .. }
                     | Block::Quote
-                    | Block::Heading { .. },
+                    | Block::Heading { .. }
+                    | Block::Table { .. },
                 ..
             })
             | None => {}
@@ -590,7 +623,8 @@ impl<'a> Parser<'a> {
                 Block::List { .. }
                 | Block::Paragraph { .. }
                 | Block::Heading { .. }
-                | Block::Fence { .. },
+                | Block::Fence { .. }
+                | Block::Table { .. },
                 _,
             ) => false,
         };
@@ -621,6 +655,7 @@ impl<'a> Parser<'a> {
             end: 0,
             children: 0,
             lines: Vec::new(),
+            spans: Vec::new(),
         });
     }
 
@@ -661,7 +696,22 @@ impl<'a> Parser<'a> {
             && [('-', '_', '*'), ('_', '-', '*'), ('*', '-', '_')]
                 .iter()
                 .any(|&(kept, a, b)| markers(kept) >= 3 && markers(a) == 0 && markers(b) == 0);
+        let header = match self.open.last() {
+            Some(Open {
+                block: Block::Paragraph { .. },
+                lines,
+                ..
+            }) if paragraph => lines.last().map(|&(from, to)| &self.text[from..to]),
+            Some(_) | None => None,
+        };
+        let table = header
+            .filter(|header| header.contains('|'))
+            .is_some_and(|header| {
+                separator(&self.line[self.cursor.index..], 0, false, 0)
+                    .is_some_and(|columns| columns > 0 && columns >= cells(header))
+            });
         match indent >= 4 {
+            _ if table => Ok(Some(Start::Table)),
             true => match active {
                 Some(Block::Paragraph { .. }) => Ok(None),
                 _ => Err(Stop::Unsupported),
@@ -797,6 +847,17 @@ impl<'a> Parser<'a> {
                 }
             }
             (Block::Fence { indent, .. }, _) => Some(Continue::Spaces(indent)),
+            (Block::Table { .. }, Space::Content { next, .. }) => {
+                let rest = &self.line[next.index..];
+                match rest.find('|') {
+                    Some(0) if rest[1..].trim_start_matches([' ', '\t']).is_empty() => {
+                        Some(Continue::EndTable)
+                    }
+                    Some(_) => Some(Continue::Here),
+                    None => None,
+                }
+            }
+            (Block::Table { .. }, Space::Blank(_)) => None,
         };
         let Some(target) = target else {
             return Matched::Count(matches);
@@ -812,6 +873,10 @@ impl<'a> Parser<'a> {
                     at.index - start >= indent || !self.line[at.index..].starts_with(' ')
                 });
             }
+            Continue::EndTable => {
+                self.open[matches].block = Block::Table { lazy: false };
+                return Matched::Count(matches);
+            }
             Continue::Finish(fence) => {
                 self.open[matches].block = fence;
                 return Matched::Finished(matches);
@@ -824,7 +889,7 @@ impl<'a> Parser<'a> {
         let last = self.cursor.index;
         let space = self.space();
         let start = match (matched, space) {
-            (Block::Fence { .. }, _) => {
+            (Block::Fence { .. } | Block::Table { .. }, _) => {
                 return Ok(Outcome {
                     matched,
                     opened,
@@ -872,6 +937,27 @@ impl<'a> Parser<'a> {
                 self.cursor = self.moved(next, |at| at.index >= index);
                 vec![fence]
             }
+            Start::Table => {
+                let paragraph = self.open.pop();
+                let span = paragraph.and_then(|mut paragraph| {
+                    let span = paragraph.spans.pop();
+                    paragraph.lines.pop();
+                    paragraph.end = paragraph.spans.last().map_or(0, |&(_, end)| end);
+                    if !paragraph.lines.is_empty() {
+                        self.open.push(paragraph);
+                        self.close(1);
+                    }
+                    span
+                });
+                self.add_child(Block::Table { lazy: true }, source);
+                self.open
+                    .iter_mut()
+                    .last()
+                    .into_iter()
+                    .zip(span)
+                    .for_each(|(table, span)| table.start = Some(span.0));
+                Vec::new()
+            }
         };
         let matched = blocks.into_iter().fold(matched, |_, block| {
             self.add_child(block, source);
@@ -884,7 +970,8 @@ impl<'a> Parser<'a> {
             Block::Document
             | Block::Paragraph { .. }
             | Block::Heading { .. }
-            | Block::Fence { .. } => Ok(Outcome {
+            | Block::Fence { .. }
+            | Block::Table { .. } => Ok(Outcome {
                 matched,
                 opened: Opened::Blocks,
                 last: self.cursor.index,
@@ -921,7 +1008,12 @@ impl<'a> Parser<'a> {
             Opened::Blocks => 0,
         };
         match (opened, space, matched, active) {
-            (Opened::Nothing { .. }, Space::Content { .. }, _, Some(Block::Paragraph { .. })) => {
+            (
+                Opened::Nothing { .. },
+                Space::Content { .. },
+                _,
+                Some(Block::Paragraph { .. } | Block::Table { lazy: true }),
+            ) => {
                 self.open
                     .iter_mut()
                     .last()
@@ -929,7 +1021,15 @@ impl<'a> Parser<'a> {
                     .for_each(|open| open.source = last);
                 self.add_line()
             }
-            (_, _, Block::Paragraph { .. } | Block::Heading { .. } | Block::Fence { .. }, _) => {
+            (
+                _,
+                _,
+                Block::Paragraph { .. }
+                | Block::Heading { .. }
+                | Block::Fence { .. }
+                | Block::Table { .. },
+                _,
+            ) => {
                 self.close(unmatched);
                 self.add_line()
             }
@@ -971,11 +1071,49 @@ enum Continue {
     Column(Cursor, usize),
     Spaces(usize),
     Finish(Block),
+    EndTable,
 }
 
 enum Matched {
     Count(usize),
     Finished(usize),
+}
+
+fn cells(row: &str) -> usize {
+    let trimmed = row.trim_start_matches([' ', '\t']);
+    let body = match trimmed.strip_prefix('|') {
+        Some(rest) => rest.trim_end_matches([' ', '\t']),
+        None => trimmed,
+    };
+    let unescaped = body.replace("\\|", "x");
+    let pieces: Vec<&str> = unescaped.split('|').collect();
+    pieces.len() - 1 + usize::from(pieces.last().is_some_and(|last| !last.is_empty()))
+}
+
+fn separator(rest: &str, pipes: usize, valid: bool, columns: usize) -> Option<usize> {
+    match rest.chars().next() {
+        None => valid.then_some(columns),
+        Some('|') => (pipes == 0)
+            .then(|| separator(&rest[1..], pipes + 1, true, columns))
+            .flatten(),
+        Some('-' | ':') if pipes > 0 || columns == 0 => {
+            let after = rest.strip_prefix(':').unwrap_or(rest);
+            let dashes = after.len() - after.trim_start_matches('-').len();
+            let tail = &after[dashes..];
+            (dashes > 0)
+                .then(|| {
+                    separator(
+                        tail.strip_prefix(':').unwrap_or(tail),
+                        0,
+                        valid,
+                        columns + 1,
+                    )
+                })
+                .flatten()
+        }
+        Some(' ' | '\t') => separator(&rest[1..], pipes, valid, columns),
+        Some(_) => None,
+    }
 }
 
 pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
@@ -988,6 +1126,7 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
             end: 0,
             children: 0,
             lines: Vec::new(),
+            spans: Vec::new(),
         }],
         events: Vec::new(),
         line: "",
@@ -1033,7 +1172,7 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
             ))
         });
     match (
-        text.contains(['|', '<', '\0', '\u{85}', '\u{2028}', '\u{2029}']),
+        text.contains(['<', '\0', '\u{85}', '\u{2028}', '\u{2029}']),
         parsed,
     ) {
         (true, _) | (false, Err(Stop::NotPorted)) => None,
@@ -1138,7 +1277,6 @@ mod tests {
     #[test]
     fn when_parse_with_a_construct_not_ported_yet_then_returns_none() {
         let cases = [
-            "a | b",
             "a <ul> b",
             "`a \u{2028}b`",
             "[a]: <b>",
@@ -1439,6 +1577,31 @@ mod tests {
                         token(Kind::FenceEnd, "~~~"),
                     ],
                 )],
+            ),
+        ];
+        for (text, expected) in cases {
+            let positions = parse(text);
+
+            let expected = Positions(expected.into_iter().collect());
+            assert_eq!(positions, Some(Ok(expected)), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn when_parse_with_a_table_then_returns_its_text_at_its_start() {
+        let token = |kind: Kind, value: &str| Token::from((kind, value));
+        let cases = [
+            (
+                "| a |\n|---|",
+                vec![(0, vec![token(Kind::MarkdownTable, "| a |\n|---|")])],
+            ),
+            (
+                "b\n| a |\n|---|",
+                vec![
+                    (0, vec![token(Kind::ParagraphOpen, "")]),
+                    (1, vec![token(Kind::ParagraphClose, "")]),
+                    (2, vec![token(Kind::MarkdownTable, "| a |\n|---|")]),
+                ],
             ),
         ];
         for (text, expected) in cases {
