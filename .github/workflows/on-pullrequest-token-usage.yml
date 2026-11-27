@@ -1,0 +1,20 @@
+name: On Pull Request (token usage)
+
+on:
+  pull_request:
+    branches:
+      - master
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: read
+
+jobs:
+  chart:
+    uses: ./.github/workflows/job-token-usage-chart.yml
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+    with:
+      pr: ${{ github.event.pull_request.number }}

@@ -69,3 +69,26 @@ print(
     )
 )
 PY
+[ $? -eq 0 ] || exit 2
+issue=$(gh issue list --label token-usage-records --state open --json number --jq '.[0].number // empty') || exit 2
+if [ -z "$issue" ]; then
+	echo "token-usage: no open issue labelled token-usage-records to record in"
+	exit 2
+fi
+gh issue view "$issue" --json body --jq .body |
+	python3 -I -c '
+import json
+import sys
+
+report = json.load(open(sys.argv[1]))
+line = json.dumps(report, separators=(",", ":"))
+head, fence, rest = sys.stdin.read().replace("\r\n", "\n").partition("```jsonl\n")
+records, close, tail = rest.partition("```")
+if not fence or not close:
+    sys.stderr.write("token-usage: the records issue has no jsonl block\n")
+    sys.exit(2)
+kept = [r for r in records.splitlines() if r and json.loads(r)["branch"] != report["branch"]]
+sys.stdout.write(head + fence + "\n".join(kept + [line]) + "\n" + close + tail)
+' "out/token-usage/$branch.json" >out/token-usage/issue-body.md || exit 2
+gh issue edit "$issue" --body-file out/token-usage/issue-body.md >/dev/null || exit 2
+echo "token-usage: recorded in issue #$issue"
