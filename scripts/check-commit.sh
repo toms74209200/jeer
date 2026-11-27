@@ -35,10 +35,12 @@ case "${1:-}" in
 	[ $# -eq 2 ] || workflow_failure "usage: check-commit.sh --msg-file <file>"
 	[ -r "$2" ] || workflow_failure "cannot read message file: $2"
 	msg=$(git stripspace --strip-comments <"$2") || workflow_failure "git stripspace failed"
+	changed=''
 	;;
 --rev)
 	[ $# -eq 2 ] || workflow_failure "usage: check-commit.sh --rev <rev>"
 	msg=$(git log -1 --format=%B "$2") || workflow_failure "cannot read commit: $2"
+	changed=$(git diff-tree --no-commit-id --root -r --name-only "$2") || workflow_failure "cannot list the files of: $2"
 	;;
 *)
 	workflow_failure "usage: check-commit.sh --msg-file <file> | --rev <rev>"
@@ -84,6 +86,10 @@ fi
 
 if printf '%s\n' "$msg" | grep -qiE '\[(skip ci|ci skip|no ci|skip actions|actions skip)\]|^skip-checks: *true'; then
 	violate "message must not skip CI; remove \"[skip ci]\" or \"skip-checks: true\" (§8.2)"
+fi
+
+if printf '%s\n' "$changed" | grep -qE '^\.shampoo/(policies|rules)/' && ! printf '%s\n' "$msg" | grep -q '^Walk'; then
+	violate "a commit that changes a policy or rule records the walk of its steps in a paragraph starting with \"Walk\" (reviews policy, §8.2)"
 fi
 
 if [ -n "$second" ]; then
