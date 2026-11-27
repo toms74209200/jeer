@@ -1,4 +1,4 @@
-use super::lexer::{Kind, SPACE, Token};
+use super::lexer::{Flavor, Kind, SPACE, Token};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Requested {
@@ -14,7 +14,8 @@ enum Indent {
     ListItem(usize),
 }
 
-struct Writer {
+struct Writer<'a> {
+    flavor: Flavor<'a>,
     block_indent: usize,
     max_line_length: usize,
     output: String,
@@ -30,20 +31,28 @@ struct Writer {
     moe_end_indent: String,
 }
 
-impl Writer {
+impl Writer<'_> {
     fn line_start(&mut self) {
+        let (indent, prefix) = match self.flavor {
+            Flavor::Classic => (1, "* "),
+            Flavor::Markdown(_) => (0, "/// "),
+        };
         self.output.push('\n');
-        self.output.push_str(&" ".repeat(self.block_indent + 1));
-        self.output.push_str("* ");
-        let width = self.max_line_length.cast_signed() - self.block_indent.cast_signed() - 3;
+        self.output
+            .push_str(&" ".repeat(self.block_indent + indent));
+        self.output.push_str(prefix);
+        let width = self.max_line_length.cast_signed()
+            - self.block_indent.cast_signed()
+            - (indent + prefix.len()).cast_signed();
         self.remaining_on_line = width;
         self.at_start_of_line = true;
     }
 
     fn inner_indent(&self) -> String {
-        let footer = match self.continuing_footer_tag {
-            true => 4,
-            false => 0,
+        let footer = match (self.continuing_footer_tag, self.flavor) {
+            (true, Flavor::Classic) => 4,
+            (true, Flavor::Markdown(_)) => 2,
+            (false, _) => 0,
         };
         let indents: usize = self
             .indents
@@ -71,15 +80,20 @@ impl Writer {
             false => Requested::None,
         };
         let continuing = self.modified_lists > 0 || self.continuing_footer_tag;
-        let requested = match (significant, continuing) {
-            (Requested::BlankLine, true) => Requested::Newline,
-            (requested, _) => requested,
+        let requested = match (significant, continuing, self.flavor) {
+            (Requested::BlankLine, true, Flavor::Classic) => Requested::Newline,
+            (requested, _, _) => requested,
         };
         self.requested = match requested {
             Requested::BlankLine => {
+                let (indent, prefix) = match self.flavor {
+                    Flavor::Classic => (1, "*"),
+                    Flavor::Markdown(_) => (0, "///"),
+                };
                 self.output.push('\n');
-                self.output.push_str(&" ".repeat(self.block_indent + 1));
-                self.output.push('*');
+                self.output
+                    .push_str(&" ".repeat(self.block_indent + indent));
+                self.output.push_str(prefix);
                 self.newline();
                 Requested::None
             }
@@ -92,6 +106,9 @@ impl Writer {
     }
 
     fn write_token(&mut self, token: &Token) {
+        if token.value.is_empty() {
+            return;
+        }
         self.flush_whitespace();
         let need_whitespace = self.requested == Requested::Whitespace;
         let length = token.value.encode_utf16().count().cast_signed();
@@ -122,8 +139,14 @@ impl Writer {
     }
 }
 
-pub fn render(tokens: &[Token], block_indent: usize, max_line_length: usize) -> String {
+pub fn render(
+    tokens: &[Token],
+    flavor: Flavor,
+    block_indent: usize,
+    max_line_length: usize,
+) -> String {
     let mut writer = Writer {
+        flavor,
         block_indent,
         max_line_length,
         output: String::from("/**"),
@@ -149,7 +172,14 @@ pub fn render(tokens: &[Token], block_indent: usize, max_line_length: usize) -> 
             })
             .unwrap_or(false)
     };
-    writer.newline();
+    match flavor {
+        Flavor::Classic => writer.newline(),
+        Flavor::Markdown(_) => {
+            writer.output = String::from("/// ");
+            writer.remaining_on_line =
+                max_line_length.cast_signed() - block_indent.cast_signed() - 4;
+        }
+    }
     for token in tokens {
         match token.kind {
             Kind::BeginJavadoc
@@ -203,11 +233,14 @@ pub fn render(tokens: &[Token], block_indent: usize, max_line_length: usize) -> 
                 }
                 writer.requested = writer.requested.max(Requested::Newline);
             }
-            Kind::EndJavadoc => {
-                writer.output.push('\n');
-                writer.output.push_str(&" ".repeat(block_indent + 1));
-                writer.output.push_str("*/");
-            }
+            Kind::EndJavadoc => match flavor {
+                Flavor::Classic => {
+                    writer.output.push('\n');
+                    writer.output.push_str(&" ".repeat(block_indent + 1));
+                    writer.output.push_str("*/");
+                }
+                Flavor::Markdown(_) => {}
+            },
             Kind::FooterTagStart => {
                 writer.continuing_list_item = false;
                 writer.indents.clear();
@@ -277,7 +310,17 @@ pub fn render(tokens: &[Token], block_indent: usize, max_line_length: usize) -> 
             }
             Kind::CodeOpen | Kind::CodeClose | Kind::Literal => writer.write_token(token),
             Kind::ForcedNewline => writer.line_start(),
-            Kind::Whitespace => writer.requested = writer.requested.max(Requested::Whitespace),
+            Kind::MarkdownHardLineBreak => {
+                writer.write_token(&Token::from((Kind::Literal, "\\")));
+                writer.newline();
+            }
+            Kind::Whitespace => {
+                let requested = match (flavor, token.value.matches('\n').count() > 1) {
+                    (Flavor::Markdown(_), true) => Requested::BlankLine,
+                    (Flavor::Classic | Flavor::Markdown(_), _) => Requested::Whitespace,
+                };
+                writer.requested = writer.requested.max(requested);
+            }
         }
     }
     let output = writer.output;
@@ -293,9 +336,9 @@ pub fn render(tokens: &[Token], block_indent: usize, max_line_length: usize) -> 
         let content = max_line_length.saturating_sub("/**  */".len() + block_indent);
         line.encode_utf16().count() <= content && (!line.starts_with('@') || line == "@hide")
     };
-    match single {
-        Some("") => String::from("/** */"),
-        Some(line) if fits(line) => format!("/** {line} */"),
-        Some(_) | None => output,
+    match (flavor, single) {
+        (Flavor::Classic, Some("")) => String::from("/** */"),
+        (Flavor::Classic, Some(line)) if fits(line) => format!("/** {line} */"),
+        (Flavor::Classic | Flavor::Markdown(_), _) => output,
     }
 }

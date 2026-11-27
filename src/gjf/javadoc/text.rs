@@ -29,6 +29,14 @@ pub fn classic_comment_text(input: &str) -> String {
     strip_common_leading_whitespace(&processed)
 }
 
+pub fn markdown_comment_text(input: &str) -> String {
+    let lines: Vec<&str> = input
+        .lines()
+        .map(|line| line.find("///").map_or("", |start| &line[start + 3..]))
+        .collect();
+    strip_common_leading_whitespace(&lines)
+}
+
 fn strip_common_leading_whitespace(lines: &[&str]) -> String {
     let leading = lines
         .iter()
@@ -61,6 +69,24 @@ mod tests {
         ];
         for (input, expected) in cases {
             let text = classic_comment_text(input);
+
+            assert_eq!(text, expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn when_markdown_comment_text_with_each_shape_then_returns_gjf_comment_text() {
+        let cases = [
+            ("/// One line.", "One line."),
+            (
+                "/// First.\n  ///\n  ///   indented",
+                "First.\n\n  indented",
+            ),
+            ("///a\n    ///  b", "a\n  b"),
+            ("///   a\n///   b", "a\nb"),
+        ];
+        for (input, expected) in cases {
+            let text = markdown_comment_text(input);
 
             assert_eq!(text, expected, "{input:?}");
         }

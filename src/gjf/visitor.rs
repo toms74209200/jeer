@@ -64,7 +64,15 @@ pub struct Visitor<'a> {
     pub hug_points: std::collections::HashMap<usize, super::doc::HugPoint>,
     pub not_huggable: std::collections::HashSet<usize>,
     pub type_annotations: std::collections::HashSet<String>,
-    pub markdown_positions: std::collections::HashSet<usize>,
+    pub markdown_positions: std::collections::HashMap<usize, Marked>,
+}
+
+pub enum Marked {
+    LineComment,
+    Javadoc {
+        text: String,
+        positions: super::javadoc::markdown::Positions,
+    },
 }
 
 impl<'a> Visitor<'a> {
