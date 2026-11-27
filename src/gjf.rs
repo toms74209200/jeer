@@ -596,6 +596,12 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/javadoc-markdown-indented-code/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-link-definition/input.java"),
+                include_str!(
+                    "../tests/fixtures/gjf/javadoc-markdown-link-definition/expected.java"
+                ),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/javadoc-literal-lt/input.java"),
                 include_str!("../tests/fixtures/gjf/javadoc-literal-lt/expected.java"),
             ),
