@@ -250,6 +250,7 @@ enum Block {
     Document,
     List { marker: char },
     Item { indent: usize, content: usize },
+    Quote,
     Paragraph { definition: Definition, first: bool },
     Heading { inline: usize },
 }
@@ -260,6 +261,7 @@ struct Open {
     start: Option<usize>,
     end: usize,
     children: usize,
+    lines: Vec<(usize, usize)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -343,23 +345,51 @@ impl<'a> Parser<'a> {
     fn close(&mut self, count: usize) {
         let closed = self.open.split_off(self.open.len() - count);
         for open in closed.into_iter().rev() {
-            let (start, end) = (open.start.unwrap_or(open.end), open.end);
+            let end = open.end;
             let closing = match open.block {
                 Block::Document => None,
                 Block::List { .. } => Some(Kind::ListClose),
                 Block::Item { .. } => Some(Kind::ListItemClose),
+                Block::Quote => Some(Kind::MarkdownBlockQuoteClose),
                 Block::Paragraph { first: true, .. } => None,
                 Block::Paragraph { first: false, .. } => Some(Kind::ParagraphClose),
                 Block::Heading { .. } => Some(Kind::HeaderClose),
             };
-            let inline = match open.block {
-                Block::Paragraph { .. } => Some(start),
-                Block::Heading { inline } => Some(inline),
-                Block::Document | Block::List { .. } | Block::Item { .. } => None,
+            let lines = match open.block {
+                Block::Paragraph { .. } => open.lines,
+                Block::Heading { inline } => vec![(inline, end)],
+                Block::Document | Block::List { .. } | Block::Item { .. } | Block::Quote => {
+                    Vec::new()
+                }
             };
-            self.events.extend(inline.map_or_else(Vec::new, |inline| {
-                inlines(&self.text[..end], inline, Vec::new())
-            }));
+            let text = self.text;
+            let content = lines
+                .iter()
+                .map(|&(from, to)| &text[from..to])
+                .collect::<Vec<_>>()
+                .join("\n");
+            let offsets: Vec<(usize, usize)> = lines
+                .iter()
+                .scan(0, |at, &(from, to)| {
+                    let here = *at;
+                    *at += to - from + 1;
+                    Some((here, from))
+                })
+                .collect();
+            self.events
+                .extend(
+                    inlines(&content, 0, Vec::new())
+                        .into_iter()
+                        .map(|(position, token)| {
+                            let (line, source) = offsets
+                                .iter()
+                                .rev()
+                                .find(|(line, _)| *line <= position)
+                                .copied()
+                                .unwrap_or((0, 0));
+                            (source + position - line, token)
+                        }),
+                );
             self.events
                 .extend(closing.map(|kind| (end, Token::from((kind, "")))));
         }
@@ -385,6 +415,17 @@ impl<'a> Parser<'a> {
         starts.into_iter().try_for_each(|(block, start)| {
             let token = match block {
                 Block::Document | Block::Paragraph { first: true, .. } => None,
+                Block::Quote => {
+                    let marker = text[start..].find('>').map(|offset| start + offset);
+                    self.events.extend(marker.map(|at| {
+                        let length = 1 + usize::from(text[at + 1..].starts_with(' '));
+                        (
+                            at,
+                            Token::from((Kind::MarkdownBlockQuoteOpen, &text[at..at + length])),
+                        )
+                    }));
+                    None
+                }
                 Block::List { .. } => Some(Token::from((Kind::ListOpen, ""))),
                 Block::Paragraph { first: false, .. } => {
                     Some(Token::from((Kind::ParagraphOpen, "")))
@@ -418,10 +459,15 @@ impl<'a> Parser<'a> {
 
     fn add_line(&mut self) -> Result<(), Stop> {
         let content = &self.line[self.cursor.index..];
+        let span = (
+            self.offset + self.cursor.index,
+            self.offset + self.line.len(),
+        );
         if let Some(Open {
             block: Block::Paragraph {
                 definition: state, ..
             },
+            lines,
             ..
         }) = self.open.last_mut()
         {
@@ -429,13 +475,14 @@ impl<'a> Parser<'a> {
                 Definition::Found => return Err(Stop::Unsupported),
                 next => next,
             };
+            lines.push(span);
         }
         self.add_source_spans()
     }
 
     fn add_child(&mut self, block: Block, source: usize) {
         let contains = |parent: Block| match (parent, block) {
-            (Block::Document | Block::Item { .. }, _) => true,
+            (Block::Document | Block::Item { .. } | Block::Quote, _) => true,
             (Block::List { .. }, Block::Item { .. }) => true,
             (Block::List { .. } | Block::Paragraph { .. } | Block::Heading { .. }, _) => false,
         };
@@ -446,7 +493,7 @@ impl<'a> Parser<'a> {
             self.open.last().map(|open| (open.block, open.children)),
             block,
         ) {
-            (Some((Block::Item { .. }, 0)), Block::Paragraph { definition, .. }) => {
+            (Some((Block::Item { .. } | Block::Quote, 0)), Block::Paragraph { definition, .. }) => {
                 Block::Paragraph {
                     definition,
                     first: true,
@@ -465,6 +512,7 @@ impl<'a> Parser<'a> {
             start: None,
             end: 0,
             children: 0,
+            lines: Vec::new(),
         });
     }
 
@@ -500,7 +548,13 @@ impl<'a> Parser<'a> {
                 Some(Block::Paragraph { .. }) => Ok(None),
                 _ => Err(Stop::Unsupported),
             },
-            false if content.starts_with('>') => Err(Stop::NotPorted),
+            false if content.starts_with('>') => {
+                let spaced = content[1..].starts_with([' ', '\t']);
+                Ok(Some(Start::Blocks(
+                    vec![Block::Quote],
+                    next.column + 1 + usize::from(spaced),
+                )))
+            }
             false if (1..=6).contains(&hashes) && spaced(&content[hashes..]) => {
                 Ok(Some(Start::Heading(self.offset + next.index + hashes)))
             }
@@ -572,6 +626,16 @@ impl<'a> Parser<'a> {
         let space = self.space();
         let target = match (block, space) {
             (Block::Document | Block::List { .. }, _) => Some(Continue::Here),
+            (Block::Quote, Space::Content { next, indent })
+                if indent < 4 && self.line[next.index..].starts_with('>') =>
+            {
+                let spaced = self.line[next.index + 1..].starts_with([' ', '\t']);
+                Some(Continue::Column(
+                    next,
+                    next.column + 1 + usize::from(spaced),
+                ))
+            }
+            (Block::Quote, _) => None,
             (Block::Item { .. }, Space::Blank(_)) if children == 0 => None,
             (Block::Item { .. }, Space::Blank(next)) => Some(Continue::Index(next)),
             (Block::Item { content, .. }, Space::Content { next, indent }) if indent >= content => {
@@ -639,7 +703,9 @@ impl<'a> Parser<'a> {
             block
         });
         match matched {
-            Block::List { .. } | Block::Item { .. } => self.starts(matched, Opened::Blocks),
+            Block::List { .. } | Block::Item { .. } | Block::Quote => {
+                self.starts(matched, Opened::Blocks)
+            }
             Block::Document | Block::Paragraph { .. } | Block::Heading { .. } => Ok(Outcome {
                 matched,
                 opened: Opened::Blocks,
@@ -729,6 +795,7 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
             start: None,
             end: 0,
             children: 0,
+            lines: Vec::new(),
         }],
         events: Vec::new(),
         line: "",
@@ -756,6 +823,7 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
                         | Kind::ParagraphClose
                         | Kind::HeaderClose
                         | Kind::MarkdownCodeSpanEnd
+                        | Kind::MarkdownBlockQuoteClose
                 )
             };
             let (firsts, lasts): (Vec<_>, Vec<_>) = std::mem::take(&mut parser.events)
@@ -889,7 +957,6 @@ mod tests {
             "-\ta",
             "-  - a\n    \t- -x",
             "a\0",
-            "> a",
             "~~~",
         ];
         for text in cases {
@@ -1109,6 +1176,40 @@ mod tests {
                         1,
                         vec![token(Kind::ListItemClose, ""), token(Kind::ListClose, "")],
                     ),
+                ],
+            ),
+        ];
+        for (text, expected) in cases {
+            let positions = parse(text);
+
+            let expected = Positions(expected.into_iter().collect());
+            assert_eq!(positions, Some(Ok(expected)), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn when_parse_with_block_quotes_then_returns_their_open_and_close_positions() {
+        let token = |kind: Kind, value: &str| Token::from((kind, value));
+        let cases = [
+            (
+                "> a",
+                vec![
+                    (0, vec![token(Kind::MarkdownBlockQuoteOpen, "> ")]),
+                    (3, vec![token(Kind::MarkdownBlockQuoteClose, "")]),
+                ],
+            ),
+            (
+                ">a",
+                vec![
+                    (0, vec![token(Kind::MarkdownBlockQuoteOpen, ">")]),
+                    (2, vec![token(Kind::MarkdownBlockQuoteClose, "")]),
+                ],
+            ),
+            (
+                "  > a",
+                vec![
+                    (2, vec![token(Kind::MarkdownBlockQuoteOpen, "> ")]),
+                    (5, vec![token(Kind::MarkdownBlockQuoteClose, "")]),
                 ],
             ),
         ];

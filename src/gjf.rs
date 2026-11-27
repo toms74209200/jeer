@@ -610,6 +610,10 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/javadoc-markdown-lists/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-blockquote/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-blockquote/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/javadoc-literal-lt/input.java"),
                 include_str!("../tests/fixtures/gjf/javadoc-literal-lt/expected.java"),
             ),
@@ -1069,7 +1073,7 @@ mod tests {
     #[test]
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
-            "/// > quote\nclass A {}\n",
+            "/// ~~~\n/// x\n/// ~~~\nclass A {}\n",
             "class A { <T> @B int f() { return 0; } }\n",
             "class A { void f(A this) {} }\n",
             "class A { int @B [] x; }\n",
@@ -1242,6 +1246,70 @@ mod tests {
     #[test]
     fn when_format_with_markdown_javadoc_then_returns_the_oracle_output() {
         let cases = [
+            (
+                "class A {\n  /// > quoted\n  ///\n  /// paragraph after with enough words after it that the formatter has to wrap this quote onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// > quoted\n  ///\n  /// paragraph after with enough words after it that the formatter has to wrap this quote onto the\n  /// next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// > first paragraph with enough words after it that the formatter has to wrap this quote onto the next line\n  /// >\n  /// > second paragraph\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// > first paragraph with enough words after it that the formatter has to wrap this quote onto\n  /// > the next line\n  /// >\n  /// > second paragraph\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// > a `code\n  /// > span` across with enough words after it that the formatter has to wrap this quote onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// > a `code span` across with enough words after it that the formatter has to wrap this quote\n  /// > onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// > > > deep with enough words after it that the formatter has to wrap this quote onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// >\n  /// > > > deep with enough words after it that the formatter has to wrap this quote onto the next\n  /// > > > line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// > quoted\n  ///\n  /// @param x the value with enough words after it that the formatter has to wrap this quote onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// > quoted\n  ///\n  /// @param x the value with enough words after it that the formatter has to wrap this quote onto\n  ///   the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// > # heading\n  /// > text with enough words after it that the formatter has to wrap this quote onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// >\n  /// >\n  /// > # heading\n  /// >\n  /// > text with enough words after it that the formatter has to wrap this quote onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  ///   > indented quote with enough words after it that the formatter has to wrap this quote onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// > indented quote with enough words after it that the formatter has to wrap this quote onto the\n  /// > next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// >     code in quote\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// >     code in quote\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// > quoted text with enough words after it that the formatter has to wrap this quote onto the next line\n  /// lazy continuation\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// > quoted text with enough words after it that the formatter has to wrap this quote onto the\n  /// > next line lazy continuation\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// > [a](b\n  /// > ) `c` d\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// > [a](b ) `c` d\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// - item\n  ///\n  ///   > quoted with enough words after it that the formatter has to wrap this quote onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// - item\n  ///\n  ///   > quoted with enough words after it that the formatter has to wrap this quote onto the next\n  ///   > line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// > outer with enough words after it that the formatter has to wrap this quote onto the next line\n  /// > > inner with enough words after it that the formatter has to wrap this quote onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// > outer with enough words after it that the formatter has to wrap this quote onto the next\n  /// > line\n  /// > > inner with enough words after it that the formatter has to wrap this quote onto the next\n  /// > > line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// >tight quote with enough words after it that the formatter has to wrap this quote onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// > tight quote with enough words after it that the formatter has to wrap this quote onto the\n  /// > next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// > a\n  /// >\n  /// >\n  /// > b\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// > a\n  /// >\n  /// > b\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// > - one with enough words after it that the formatter has to wrap this quote onto the next line\n  /// > - two\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// >\n  /// > - one with enough words after it that the formatter has to wrap this quote onto the next\n  /// >   line\n  /// > - two\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// >\tquote after tab with enough words after it that the formatter has to wrap this quote onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// >  quote after tab with enough words after it that the formatter has to wrap this quote onto\n  /// > the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
             (
                 "class A {\n  /// - a   item\n  ///  \tcontinued   text\n  void f() {}\n}\n",
                 "class A {\n  /// - a item continued text\n  void f() {}\n}\n",

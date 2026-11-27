@@ -31,6 +31,9 @@ pub enum Kind {
     MarkdownHardLineBreak,
     MarkdownCodeSpanStart,
     MarkdownCodeSpanEnd,
+    MarkdownBlockQuoteOpen,
+    MarkdownBlockQuoteClose,
+    BlockQuoteMarker,
     Literal,
 }
 
@@ -81,6 +84,7 @@ enum Context {
     Brace,
     InlineTag,
     MarkdownCode,
+    BlockQuote,
 }
 
 const PRESERVING: fn(&Context) -> bool = |open| {
@@ -145,6 +149,18 @@ impl State<'_> {
                     self.stack.truncate(open.unwrap_or(self.stack.len()));
                     Kind::Literal
                 }
+                Kind::MarkdownBlockQuoteOpen => {
+                    self.stack.push(Context::BlockQuote);
+                    token.kind
+                }
+                Kind::MarkdownBlockQuoteClose => {
+                    let open = self
+                        .stack
+                        .iter()
+                        .rposition(|open| *open == Context::BlockQuote);
+                    self.stack.truncate(open.unwrap_or(self.stack.len()));
+                    token.kind
+                }
                 kind => kind,
             };
             self.tokens.push(Token {
@@ -173,6 +189,17 @@ impl State<'_> {
         if rest[spaces..].starts_with('\n') {
             self.since_newline = false;
             return Some((either(Kind::ForcedNewline, Kind::Whitespace), spaces + 1));
+        }
+        let marker = rest
+            .strip_prefix('>')
+            .map(|after| 1 + usize::from(after.starts_with(' ')));
+        if let (Flavor::Markdown(_), false, true, Some(length)) = (
+            self.flavor,
+            self.since_newline,
+            self.stack.contains(&Context::BlockQuote),
+            marker,
+        ) {
+            return Some((Kind::BlockQuoteMarker, length));
         }
         if spaces > 0 {
             return Some((either(Kind::Literal, Kind::Whitespace), 1));
@@ -435,6 +462,9 @@ fn join_literals(input: Vec<Token>) -> Vec<Token> {
             | Kind::MarkdownHardLineBreak
             | Kind::MarkdownCodeSpanStart
             | Kind::MarkdownCodeSpanEnd
+            | Kind::MarkdownBlockQuoteOpen
+            | Kind::MarkdownBlockQuoteClose
+            | Kind::BlockQuoteMarker
             | Kind::ForcedNewline => output.extend(tokens.next()),
         }
     }
