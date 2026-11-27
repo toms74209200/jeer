@@ -1,0 +1,56 @@
+name: Job - Token usage chart
+
+on:
+  workflow_call:
+    inputs:
+      pr:
+        description: 'The PR to highlight and comment on'
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: write
+
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ inputs.pr }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Collect the records and the PRs
+        run: |
+          mkdir -p out
+          gh issue list --label token-usage-records --state open --json body --jq '.[0].body // error("no open issue labelled token-usage-records")' > out/records.md
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=closed&per_page=100" \
+            --jq '[.[] | select(.merged_at) | {number, title, headRefName: .head.ref}]' > out/merged.json
+          gh pr view "$PR" --json number,title,headRefName --jq '[.]' > out/this.json
+          jq -s 'add | unique_by(.number)' out/merged.json out/this.json > out/prs.json
+      - name: Draw the chart
+        run: python3 -I scripts/token-usage-chart.py out/records.md out/prs.json "$PR" > out/token-usage-chart.html 2> out/not-charted.txt
+      - id: upload
+        uses: actions/upload-artifact@v7
+        with:
+          path: out/token-usage-chart.html
+          archive: false
+          overwrite: true
+      - name: Link the chart from the PR
+        env:
+          URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          body=$(printf '<!-- token-usage-chart -->\nToken usage of this and the merged PRs: [token-usage-chart.html](%s) (run %s)\n\n%s' \
+            "$URL" "$GITHUB_RUN_ID" "$(cat out/not-charted.txt)")
+          printf '%s\n' "$body" >> "$GITHUB_STEP_SUMMARY"
+          comment=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- token-usage-chart -->"))) | .id' \
+            | jq -s 'first // empty')
+          if [ -n "$comment" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment" -f body="$body" > /dev/null
+          else
+            gh pr comment "$PR" --body "$body"
+          fi

@@ -236,6 +236,7 @@ Verbs, in the imperative: Add, Change, Update, Bump, Fix, Remove, Rename, Move, 
 - One task per branch and PR, branched from `master` with `git switch -c`. Nothing is pushed to `master`
 - The `master` ruleset requires a PR and merge commits, and forbids force pushes and deletion. No check is required: shampoo merges a PR once the workflows its changed paths call for have passed
 - Workflows follow shampoo's layout: `on-pullrequest-*.yml` decide when to run from the changed paths, `job-*.yml` hold the steps. A run may apply the formatter and push the result; it then checks what it pushed in the same run. Nothing skips CI
+- `on-pullrequest-token-usage.yml` runs on every PR event, merging included: it charts the records of the `token-usage-records` issue for the merged PRs and this one (`scripts/token-usage-chart.py`), uploads the page unzipped (`archive: false`, viewable in the browser) and links it from one PR comment it keeps updated and from the job summary, with a line when this PR is not charted. Its job continues on error, and it has no concurrency group, so no run of it is cancelled: a chart that cannot be drawn never holds a merge, and the failed run says why
 
 ### 8.6 Records of the HOOTL run
 For the experiment of §1, the evidence is kept where it survives the container: shampoo's ledger and statistics under `.git/`, GitHub's PRs, issues and workflow runs, and the agents' session transcripts copied to `.hootl/` (untracked). Match rates are recomputed from git history, since the oracle and the corpora are pinned.
