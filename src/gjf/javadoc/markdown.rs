@@ -42,6 +42,21 @@ enum Definition {
 
 const WHITESPACE: [char; 6] = [' ', '\t', '\n', '\u{b}', '\u{c}', '\r'];
 
+const SKIP: fn(&str) -> &str = |text| text.trim_start_matches(WHITESPACE);
+
+const CLOSING: fn(char) -> char = |open| match open {
+    '(' => ')',
+    quote => quote,
+};
+
+const TITLE: fn(&str, char) -> Option<&str> = |text, close| {
+    scan(text, &|c| match c {
+        _ if c == close => Some(true),
+        '(' if close == ')' => Some(false),
+        _ => None,
+    })
+};
+
 const ESCAPABLE: &str = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
 
 fn scan<'a>(text: &'a str, stop: &dyn Fn(char) -> Option<bool>) -> Option<&'a str> {
@@ -83,11 +98,10 @@ fn balanced(text: &str, parens: usize) -> Option<&str> {
 }
 
 fn definition(state: Definition, rest: &str) -> Definition {
-    let skip: fn(&str) -> &str = |text| text.trim_start_matches(WHITESPACE);
     let failed = (Definition::Paragraph, "");
     let (next, rest) = match (state, rest.is_empty()) {
         (_, true) | (Definition::Paragraph | Definition::Found, false) => return state,
-        (Definition::Start, false) => skip(rest).strip_prefix('[').map_or(failed, |after| {
+        (Definition::Start, false) => SKIP(rest).strip_prefix('[').map_or(failed, |after| {
             let length = usize::from(after.is_empty());
             (
                 Definition::Label {
@@ -114,14 +128,14 @@ fn definition(state: Definition, rest: &str) -> Definition {
                     },
                     "",
                 ),
-                Some(tail) if length <= 999 && !blank => (Definition::Destination, skip(tail)),
+                Some(tail) if length <= 999 && !blank => (Definition::Destination, SKIP(tail)),
                 None | Some(_) => failed,
             }
         }),
         (Definition::Destination, false) => {
-            let scanned = balanced(skip(rest), 0);
+            let scanned = balanced(SKIP(rest), 0);
             scanned.map_or(failed, |after| {
-                let tail = skip(after);
+                let tail = SKIP(after);
                 match (tail.is_empty(), tail.len() == after.len()) {
                     (true, _) => (Definition::Found, ""),
                     (false, true) => failed,
@@ -130,25 +144,21 @@ fn definition(state: Definition, rest: &str) -> Definition {
             })
         }
         (Definition::StartTitle, false) => {
-            let text = skip(rest);
+            let text = SKIP(rest);
             match text.chars().next() {
-                Some(c @ ('"' | '\'')) => (Definition::Title(c), &text[1..]),
-                Some('(') => (Definition::Title(')'), &text[1..]),
+                Some(c @ ('"' | '\'' | '(')) => (Definition::Title(CLOSING(c)), &text[1..]),
                 None | Some(_) => (Definition::Start, text),
             }
         }
-        (Definition::Title(delimiter), false) => scan(rest, &|c| match c {
-            _ if c == delimiter => Some(true),
-            '(' if delimiter == ')' => Some(false),
-            _ => None,
-        })
-        .map_or(failed, |after| match after.chars().next() {
-            None => (Definition::Title(delimiter), ""),
-            Some(c) => match skip(&after[c.len_utf8()..]).is_empty() {
-                true => (Definition::Found, ""),
-                false => failed,
-            },
-        }),
+        (Definition::Title(delimiter), false) => {
+            TITLE(rest, delimiter).map_or(failed, |after| match after.chars().next() {
+                None => (Definition::Title(delimiter), ""),
+                Some(c) => match SKIP(&after[c.len_utf8()..]).is_empty() {
+                    true => (Definition::Found, ""),
+                    false => failed,
+                },
+            })
+        }
     };
     definition(next, rest)
 }
@@ -162,16 +172,71 @@ fn closing(text: &str, from: usize, ticks: usize) -> Option<usize> {
     }
 }
 
-fn code_spans(text: &str, from: usize) -> Vec<(usize, Token)> {
-    let Some(start) = text[from..].find(['`', '\\']).map(|offset| from + offset) else {
+#[derive(Debug, Clone, Copy)]
+struct Bracket {
+    image: bool,
+    allowed: bool,
+}
+
+fn link(text: &str, from: usize) -> Option<usize> {
+    let inner = SKIP(text[from..].strip_prefix('(')?);
+    let destination = balanced(inner, 0)?;
+    let spaced = SKIP(destination);
+    let titled = match (spaced.len() < destination.len(), spaced.chars().next()) {
+        (true, Some(open @ ('"' | '\'' | '('))) => {
+            let close = CLOSING(open);
+            TITLE(&spaced[1..], close)?.strip_prefix(close)?
+        }
+        _ => spaced,
+    };
+    let rest = SKIP(titled).strip_prefix(')')?;
+    Some(text.len() - rest.len())
+}
+
+fn inlines(text: &str, from: usize, brackets: Vec<Bracket>) -> Vec<(usize, Token)> {
+    let Some(start) = text[from..]
+        .find(['`', '\\', '[', ']', '!'])
+        .map(|offset| from + offset)
+    else {
         return Vec::new();
     };
-    match text[start + 1..].chars().next() {
-        Some(c) if text[start..].starts_with('\\') && ESCAPABLE.contains(c) => {
-            code_spans(text, start + 1 + c.len_utf8())
+    let next = text[start + 1..].chars().next();
+    let pushed = |image: bool| {
+        brackets
+            .iter()
+            .copied()
+            .chain([Bracket {
+                image,
+                allowed: true,
+            }])
+            .collect()
+    };
+    match text[start..].chars().next() {
+        Some('\\') => {
+            let escaped = next.filter(|c| ESCAPABLE.contains(*c));
+            inlines(
+                text,
+                start + 1 + escaped.map_or(0, char::len_utf8),
+                brackets,
+            )
         }
-        _ if text[start..].starts_with('\\') => code_spans(text, start + 1),
-        _ => {
+        Some('[') => inlines(text, start + 1, pushed(false)),
+        Some('!') if next == Some('[') => inlines(text, start + 2, pushed(true)),
+        Some(']') => match brackets.split_last() {
+            Some((opener, earlier)) if opener.allowed => match link(text, start + 1) {
+                Some(end) => {
+                    let disallowed = earlier.iter().map(|bracket| Bracket {
+                        allowed: bracket.allowed && (opener.image || bracket.image),
+                        ..*bracket
+                    });
+                    inlines(text, end, disallowed.collect())
+                }
+                None => inlines(text, start + 1, earlier.to_vec()),
+            },
+            Some((_, earlier)) => inlines(text, start + 1, earlier.to_vec()),
+            None => inlines(text, start + 1, brackets),
+        },
+        Some('`') => {
             let run = text[start..].len() - text[start..].trim_start_matches('`').len();
             let ticks = &text[start..start + run];
             match closing(text, start + run, run) {
@@ -180,11 +245,12 @@ fn code_spans(text: &str, from: usize) -> Vec<(usize, Token)> {
                     (end, Token::from((Kind::MarkdownCodeSpanEnd, ticks))),
                 ]
                 .into_iter()
-                .chain(code_spans(text, end + run))
+                .chain(inlines(text, end + run, brackets))
                 .collect(),
-                None => code_spans(text, start + run),
+                None => inlines(text, start + run, brackets),
             }
         }
+        _ => inlines(text, start + 1, brackets),
     }
 }
 
@@ -238,28 +304,18 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
         }
     };
     let block = |open: Kind, start: usize, inline: usize, close: Kind, end: usize| {
-        let inline = &text[inline..end];
-        let link = inline
-            .find("](")
-            .is_some_and(|link| inline[link..].contains('`'));
-        let spans = code_spans(&text[..end], end - inline.len());
-        match link {
-            true => Err(Stop::NotPorted),
-            false => Ok(std::iter::once((start, Token::from((open, ""))))
-                .chain(spans)
-                .chain([(end, Token::from((close, "")))])),
-        }
+        std::iter::once((start, Token::from((open, ""))))
+            .chain(inlines(&text[..end], inline, Vec::new()))
+            .chain([(end, Token::from((close, "")))])
     };
     let close = |tokens: Vec<(usize, Token)>, paragraph: Option<(usize, usize, Definition)>| {
         let blocks = paragraph.map(|(start, end, _)| {
             block(Kind::ParagraphOpen, start, start, Kind::ParagraphClose, end)
         });
-        Ok::<_, Stop>(
-            tokens
-                .into_iter()
-                .chain(blocks.transpose()?.into_iter().flatten())
-                .collect::<Vec<_>>(),
-        )
+        tokens
+            .into_iter()
+            .chain(blocks.into_iter().flatten())
+            .collect::<Vec<_>>()
     };
     let blocks = text
         .split('\n')
@@ -281,7 +337,7 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
                     state => Ok(Some((open, end, state))),
                 };
                 match (classify(line, paragraph.is_some()), paragraph) {
-                    (Line::Blank, _) => Ok((close(tokens, paragraph)?, None)),
+                    (Line::Blank, _) => Ok((close(tokens, paragraph), None)),
                     (Line::Indented | Line::Text, Some((open, _, state))) => {
                         Ok((tokens, continued(open, state)?))
                     }
@@ -289,9 +345,9 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
                     (Line::Heading, _) => {
                         let inline = end - content.trim_start_matches('#').len();
                         let heading =
-                            block(Kind::HeaderOpen, start, inline, Kind::HeaderClose, end)?;
+                            block(Kind::HeaderOpen, start, inline, Kind::HeaderClose, end);
                         Ok((
-                            close(tokens, paragraph)?
+                            close(tokens, paragraph)
                                 .into_iter()
                                 .chain(heading)
                                 .collect(),
@@ -303,8 +359,8 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
                 }
             },
         );
-    let positions = blocks.and_then(|(tokens, paragraph)| {
-        Ok(Positions(close(tokens, paragraph)?.into_iter().fold(
+    let positions = blocks.map(|(tokens, paragraph)| {
+        Positions(close(tokens, paragraph).into_iter().fold(
             HashMap::new(),
             |mut positions, (position, token)| {
                 positions
@@ -313,7 +369,7 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
                     .push(token);
                 positions
             },
-        )))
+        ))
     });
     match (
         text.contains(['|', '<', '\0', '\u{85}', '\u{2028}', '\u{2029}']),
@@ -423,8 +479,6 @@ mod tests {
         let cases = [
             "a | b",
             "a <ul> b",
-            "[a](b`c`)",
-            "# [a](b`c`)",
             "`a \u{2028}b`",
             "```",
             "[a]: <b>",
@@ -581,6 +635,15 @@ mod tests {
                     (4, vec![tick(Kind::MarkdownCodeSpanStart, "`")]),
                     (6, vec![tick(Kind::MarkdownCodeSpanEnd, "`")]),
                     (7, vec![open(Kind::ParagraphClose)]),
+                ],
+            ),
+            (
+                "a] !b `c`",
+                vec![
+                    (0, vec![open(Kind::ParagraphOpen)]),
+                    (6, vec![tick(Kind::MarkdownCodeSpanStart, "`")]),
+                    (8, vec![tick(Kind::MarkdownCodeSpanEnd, "`")]),
+                    (9, vec![open(Kind::ParagraphClose)]),
                 ],
             ),
             (

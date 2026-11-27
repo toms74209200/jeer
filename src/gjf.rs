@@ -1239,6 +1239,46 @@ mod tests {
     fn when_format_with_markdown_javadoc_then_returns_the_oracle_output() {
         let cases = [
             (
+                "class A {\n  /// See [a](b`c) d`e\n  /// @param x` text\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// See [a](b`c) d`e @param x` text\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// See [![a](b)](c`d) e`f\n  /// @param x` g\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// See [![a](b)](c`d) e`f @param x` g\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// See ![[a](b)](c`d) e`f\n  /// @param x` g\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// See ![[a](b)](c`d) e`f @param x` g\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// See [a](b(((((((((((((((((((((((((((((((())))))))))))))))))))))))))))))))`c) d`e\n  /// @param x` f\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// See [a](b(((((((((((((((((((((((((((((((())))))))))))))))))))))))))))))))`c) d`e @param x` f\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// See [a](b((((((((((((((((((((((((((((((((()))))))))))))))))))))))))))))))))`c) d`e\n  /// @param x` f\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// See [a](b((((((((((((((((((((((((((((((((()))))))))))))))))))))))))))))))))`c) d`e\n  ///\n  /// @param x` f\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// See [[a](b) c](d`e) f`g\n  /// @param x` h\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// See [[a](b) c](d`e) f`g\n  ///\n  /// @param x` h\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// See [a](b (t`u(v) w`x)\n  /// @param x` z\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// See [a](b (t`u(v) w`x)\n  ///\n  /// @param x` z\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// See [a](b \"t`u\") v`w\n  /// @param x` y\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// See [a](b \"t`u\") v`w @param x` y\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// See [a](b`c d`e\n  /// @param x` f\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// See [a](b`c d`e\n  ///\n  /// @param x` f\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// See [a](b \"t`c\n  /// @param x`\") text\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// See [a](b \"t`c\n  ///\n  /// @param x`\") text\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
                 "class A {\n  ///   Ends   with `code`\n  void f() {}\n}\n",
                 "class A {\n  /// Ends with `code`\n  void f() {}\n}\n",
             ),
