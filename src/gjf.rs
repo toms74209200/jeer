@@ -606,6 +606,10 @@ mod tests {
                 include_str!("../tests/fixtures/gjf/javadoc-markdown-code-span/expected.java"),
             ),
             (
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-lists/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-lists/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/javadoc-literal-lt/input.java"),
                 include_str!("../tests/fixtures/gjf/javadoc-literal-lt/expected.java"),
             ),
@@ -1065,7 +1069,7 @@ mod tests {
     #[test]
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
-            "/// - item\nclass A {}\n",
+            "/// > quote\nclass A {}\n",
             "class A { <T> @B int f() { return 0; } }\n",
             "class A { void f(A this) {} }\n",
             "class A { int @B [] x; }\n",
@@ -1238,6 +1242,90 @@ mod tests {
     #[test]
     fn when_format_with_markdown_javadoc_then_returns_the_oracle_output() {
         let cases = [
+            (
+                "class A {\n  /// - a   item\n  ///  \tcontinued   text\n  void f() {}\n}\n",
+                "class A {\n  /// - a item continued text\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// - a   item\n  ///     continued   text\n  void f() {}\n}\n",
+                "class A {\n  /// - a item continued text\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// - a   item\n  ///\tcontinued   text\n  void f() {}\n}\n",
+                "class A {\n  /// - a item continued text\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// Intro.\n  ///\n  /// - one with enough words after it that the formatter has to wrap this item onto the next line\n  ///\n  /// - two\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// Intro.\n  ///\n  /// - one with enough words after it that the formatter has to wrap this item onto the next line\n  ///\n  /// - two\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// - outer with enough words after it that the formatter has to wrap this item onto the next line\n  ///   - inner with enough words after it that the formatter has to wrap this item onto the next line\n  ///   - second inner\n  /// - outer two\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// - outer with enough words after it that the formatter has to wrap this item onto the next line\n  ///   - inner with enough words after it that the formatter has to wrap this item onto the next\n  ///     line\n  ///   - second inner\n  /// - outer two\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// Text before\n  /// 3. not a list\n  /// 4. still text\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// Text before 3. not a list 4. still text\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// Text before\n  /// 1. a list with enough words after it that the formatter has to wrap this item onto the next line\n  /// 2. second\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// Text before\n  /// 1. a list with enough words after it that the formatter has to wrap this item onto the next\n  ///    line\n  /// 2. second\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// - first paragraph with enough words after it that the formatter has to wrap this item onto the next line\n  ///\n  ///   second paragraph in the item with enough words after it that the formatter has to wrap this item onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// - first paragraph with enough words after it that the formatter has to wrap this item onto the\n  ///   next line\n  ///\n  ///   second paragraph in the item with enough words after it that the formatter has to wrap this\n  ///   item onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// - item text with enough words after it that the formatter has to wrap this item onto the next line\n  /// lazy continuation line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// - item text with enough words after it that the formatter has to wrap this item onto the next\n  ///   line lazy continuation line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// - a\n  /// + b\n  /// * c\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// - a\n  /// + b\n  /// * c\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// 1. a\n  /// 1) b\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// 1. a\n  /// 1) b\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// -     indented code in an item\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// -     indented code in an item\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// - item with `code span` inside with enough words after it that the formatter has to wrap this item onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// - item with `code span` inside with enough words after it that the formatter has to wrap this\n  ///   item onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// - item\n  ///\n  /// paragraph after the list with enough words after it that the formatter has to wrap this item onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// - item\n  ///\n  /// paragraph after the list with enough words after it that the formatter has to wrap this item\n  /// onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// - a\n  ///\n  ///  b\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// - a\n  ///\n  /// b\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// - a list item\n  ///\n  /// @param x the parameter with enough words after it that the formatter has to wrap this item onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// - a list item\n  ///\n  /// @param x the parameter with enough words after it that the formatter has to wrap this item\n  ///   onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// 10. ten with enough words after it that the formatter has to wrap this item onto the next line\n  /// 11. eleven\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// 10. ten with enough words after it that the formatter has to wrap this item onto the next line\n  /// 11. eleven\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// - ***\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// - ***\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// * * *\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// * * *\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// -   spaced marker with enough words after it that the formatter has to wrap this item onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// -  spaced marker with enough words after it that the formatter has to wrap this item onto the\n  ///   next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
+            (
+                "class A {\n  /// * star item with enough words after it that the formatter has to wrap this item onto the next line\n  int f(int x) {\n    return x;\n  }\n}\n",
+                "class A {\n  /// * star item with enough words after it that the formatter has to wrap this item onto the next\n  ///   line\n  int f(int x) {\n    return x;\n  }\n}\n",
+            ),
             (
                 "class A {\n  /// See [a](b`c) d`e\n  /// @param x` text\n  int f(int x) {\n    return x;\n  }\n}\n",
                 "class A {\n  /// See [a](b`c) d`e @param x` text\n  int f(int x) {\n    return x;\n  }\n}\n",
