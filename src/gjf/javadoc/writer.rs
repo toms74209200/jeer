@@ -12,6 +12,7 @@ enum Requested {
 enum Indent {
     List(usize),
     ListItem(usize),
+    BlockQuote,
 }
 
 struct Writer<'a> {
@@ -54,14 +55,15 @@ impl Writer<'_> {
             (true, Flavor::Markdown(_)) => 2,
             (false, _) => 0,
         };
-        let indents: usize = self
+        let indents: String = self
             .indents
             .iter()
             .map(|indent| match indent {
-                Indent::List(width) | Indent::ListItem(width) => *width,
+                Indent::List(width) | Indent::ListItem(width) => " ".repeat(*width),
+                Indent::BlockQuote => String::from("> "),
             })
-            .sum();
-        " ".repeat(indents + footer)
+            .collect();
+        " ".repeat(footer) + &indents
     }
 
     fn newline(&mut self) {
@@ -94,6 +96,11 @@ impl Writer<'_> {
                 self.output
                     .push_str(&" ".repeat(self.block_indent + indent));
                 self.output.push_str(prefix);
+                let inner = self.inner_indent();
+                if let kept @ [_, ..] = inner.trim_end().as_bytes() {
+                    self.output.push(' ');
+                    self.output.push_str(&String::from_utf8_lossy(kept));
+                }
                 self.newline();
                 Requested::None
             }
@@ -131,7 +138,11 @@ impl Writer<'_> {
         self.output.push_str(&token.value);
         self.at_start_of_line &= matches!(
             token.kind,
-            Kind::ParagraphOpen | Kind::ListItemOpen | Kind::HeaderOpen | Kind::BlockQuoteOpen
+            Kind::ParagraphOpen
+                | Kind::ListItemOpen
+                | Kind::HeaderOpen
+                | Kind::BlockQuoteOpen
+                | Kind::MarkdownBlockQuoteOpen
         );
         self.remaining_on_line -= length;
         self.requested = Requested::None;
@@ -187,7 +198,24 @@ pub fn render(
             | Kind::ListItemClose
             | Kind::OptionalLineBreak
             | Kind::MarkdownCodeSpanStart
-            | Kind::MarkdownCodeSpanEnd => {}
+            | Kind::MarkdownCodeSpanEnd
+            | Kind::BlockQuoteMarker => {}
+            Kind::MarkdownBlockQuoteOpen => {
+                if !writer.at_start_of_line {
+                    writer.requested = writer.requested.max(Requested::Newline);
+                }
+                writer.write_token(&Token::from((Kind::MarkdownBlockQuoteOpen, "> ")));
+                writer.indents.push(Indent::BlockQuote);
+            }
+            Kind::MarkdownBlockQuoteClose => {
+                let quote = writer
+                    .indents
+                    .iter()
+                    .rposition(|indent| matches!(indent, Indent::BlockQuote));
+                writer
+                    .indents
+                    .truncate(quote.unwrap_or(writer.indents.len()));
+            }
             Kind::SnippetBegin | Kind::HeaderOpen | Kind::TableOpen => {
                 writer.requested = writer.requested.max(Requested::BlankLine);
                 writer.write_token(token);
