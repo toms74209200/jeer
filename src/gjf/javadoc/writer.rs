@@ -185,7 +185,9 @@ pub fn render(
             Kind::BeginJavadoc
             | Kind::ParagraphClose
             | Kind::ListItemClose
-            | Kind::OptionalLineBreak => {}
+            | Kind::OptionalLineBreak
+            | Kind::MarkdownCodeSpanStart
+            | Kind::MarkdownCodeSpanEnd => {}
             Kind::SnippetBegin | Kind::HeaderOpen | Kind::TableOpen => {
                 writer.requested = writer.requested.max(Requested::BlankLine);
                 writer.write_token(token);

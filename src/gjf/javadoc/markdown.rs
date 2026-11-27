@@ -153,6 +153,41 @@ fn definition(state: Definition, rest: &str) -> Definition {
     definition(next, rest)
 }
 
+fn closing(text: &str, from: usize, ticks: usize) -> Option<usize> {
+    let start = from + text[from..].find('`')?;
+    let run = text[start..].len() - text[start..].trim_start_matches('`').len();
+    match run == ticks {
+        true => Some(start),
+        false => closing(text, start + run, ticks),
+    }
+}
+
+fn code_spans(text: &str, from: usize) -> Vec<(usize, Token)> {
+    let Some(start) = text[from..].find(['`', '\\']).map(|offset| from + offset) else {
+        return Vec::new();
+    };
+    match text[start + 1..].chars().next() {
+        Some(c) if text[start..].starts_with('\\') && ESCAPABLE.contains(c) => {
+            code_spans(text, start + 1 + c.len_utf8())
+        }
+        _ if text[start..].starts_with('\\') => code_spans(text, start + 1),
+        _ => {
+            let run = text[start..].len() - text[start..].trim_start_matches('`').len();
+            let ticks = &text[start..start + run];
+            match closing(text, start + run, run) {
+                Some(end) => [
+                    (start, Token::from((Kind::MarkdownCodeSpanStart, ticks))),
+                    (end, Token::from((Kind::MarkdownCodeSpanEnd, ticks))),
+                ]
+                .into_iter()
+                .chain(code_spans(text, end + run))
+                .collect(),
+                None => code_spans(text, start + run),
+            }
+        }
+    }
+}
+
 pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
     let classify = |line: &str, paragraph: bool| {
         let content = line.trim_start_matches([' ', '\t']);
@@ -196,22 +231,35 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
                 Line::Heading
             }
             (false, false) if paragraph && underline => Line::Underline,
-            (false, false) if run('~') >= 3 => Line::Stop(Stop::NotPorted),
+            (false, false) if run('~') >= 3 || run('`') >= 3 => Line::Stop(Stop::NotPorted),
             (false, false) if thematic => Line::Stop(Stop::Unsupported),
             (false, false) if bullet || ordered => Line::Stop(Stop::NotPorted),
             (false, false) => Line::Text,
         }
     };
+    let block = |open: Kind, start: usize, inline: usize, close: Kind, end: usize| {
+        let inline = &text[inline..end];
+        let link = inline
+            .find("](")
+            .is_some_and(|link| inline[link..].contains('`'));
+        let spans = code_spans(&text[..end], end - inline.len());
+        match link {
+            true => Err(Stop::NotPorted),
+            false => Ok(std::iter::once((start, Token::from((open, ""))))
+                .chain(spans)
+                .chain([(end, Token::from((close, "")))])),
+        }
+    };
     let close = |tokens: Vec<(usize, Token)>, paragraph: Option<(usize, usize, Definition)>| {
-        tokens
-            .into_iter()
-            .chain(paragraph.into_iter().flat_map(|(start, end, _)| {
-                [
-                    (start, Token::from((Kind::ParagraphOpen, ""))),
-                    (end, Token::from((Kind::ParagraphClose, ""))),
-                ]
-            }))
-            .collect::<Vec<_>>()
+        let blocks = paragraph.map(|(start, end, _)| {
+            block(Kind::ParagraphOpen, start, start, Kind::ParagraphClose, end)
+        });
+        Ok::<_, Stop>(
+            tokens
+                .into_iter()
+                .chain(blocks.transpose()?.into_iter().flatten())
+                .collect::<Vec<_>>(),
+        )
     };
     let blocks = text
         .split('\n')
@@ -233,35 +281,44 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
                     state => Ok(Some((open, end, state))),
                 };
                 match (classify(line, paragraph.is_some()), paragraph) {
-                    (Line::Blank, _) => Ok((close(tokens, paragraph), None)),
+                    (Line::Blank, _) => Ok((close(tokens, paragraph)?, None)),
                     (Line::Indented | Line::Text, Some((open, _, state))) => {
                         Ok((tokens, continued(open, state)?))
                     }
                     (Line::Indented, None) | (Line::Underline, _) => Err(Stop::Unsupported),
-                    (Line::Heading, _) => Ok((
-                        close(tokens, paragraph)
-                            .into_iter()
-                            .chain([
-                                (start, Token::from((Kind::HeaderOpen, ""))),
-                                (end, Token::from((Kind::HeaderClose, ""))),
-                            ])
-                            .collect(),
-                        None,
-                    )),
+                    (Line::Heading, _) => {
+                        let inline = end - content.trim_start_matches('#').len();
+                        let heading =
+                            block(Kind::HeaderOpen, start, inline, Kind::HeaderClose, end)?;
+                        Ok((
+                            close(tokens, paragraph)?
+                                .into_iter()
+                                .chain(heading)
+                                .collect(),
+                            None,
+                        ))
+                    }
                     (Line::Text, None) => Ok((tokens, continued(start, Definition::Start)?)),
                     (Line::Stop(stop), _) => Err(stop),
                 }
             },
         );
-    let positions = blocks.map(|(tokens, paragraph)| {
-        Positions(
-            close(tokens, paragraph)
-                .into_iter()
-                .map(|(position, token)| (position, vec![token]))
-                .collect(),
-        )
+    let positions = blocks.and_then(|(tokens, paragraph)| {
+        Ok(Positions(close(tokens, paragraph)?.into_iter().fold(
+            HashMap::new(),
+            |mut positions, (position, token)| {
+                positions
+                    .entry(position)
+                    .or_insert_with(Vec::new)
+                    .push(token);
+                positions
+            },
+        )))
     });
-    match (text.contains(['`', '|', '<', '\0']), positions) {
+    match (
+        text.contains(['|', '<', '\0', '\u{85}', '\u{2028}', '\u{2029}']),
+        positions,
+    ) {
         (true, _) | (false, Err(Stop::NotPorted)) => None,
         (false, Ok(positions)) => Some(Ok(positions)),
         (false, Err(Stop::Unsupported)) => Some(Err(Unsupported)),
@@ -364,9 +421,12 @@ mod tests {
     #[test]
     fn when_parse_with_a_construct_not_ported_yet_then_returns_none() {
         let cases = [
-            "a `b`",
             "a | b",
             "a <ul> b",
+            "[a](b`c`)",
+            "# [a](b`c`)",
+            "`a \u{2028}b`",
+            "```",
             "[a]: <b>",
             "[a]: <b",
             "[a]: <b<c>",
@@ -443,6 +503,100 @@ mod tests {
                 .into_iter()
                 .collect(),
             );
+            assert_eq!(positions, Some(Ok(expected)), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn when_parse_with_code_spans_then_returns_their_start_and_end_positions() {
+        let open = |kind: Kind| Token::from((kind, ""));
+        let tick = |kind: Kind, ticks: &str| Token::from((kind, ticks));
+        let cases = [
+            (
+                "a `b` c",
+                vec![
+                    (0, vec![open(Kind::ParagraphOpen)]),
+                    (2, vec![tick(Kind::MarkdownCodeSpanStart, "`")]),
+                    (4, vec![tick(Kind::MarkdownCodeSpanEnd, "`")]),
+                    (7, vec![open(Kind::ParagraphClose)]),
+                ],
+            ),
+            (
+                "`a`",
+                vec![
+                    (
+                        0,
+                        vec![
+                            open(Kind::ParagraphOpen),
+                            tick(Kind::MarkdownCodeSpanStart, "`"),
+                        ],
+                    ),
+                    (2, vec![tick(Kind::MarkdownCodeSpanEnd, "`")]),
+                    (3, vec![open(Kind::ParagraphClose)]),
+                ],
+            ),
+            (
+                "`a`` b`",
+                vec![
+                    (
+                        0,
+                        vec![
+                            open(Kind::ParagraphOpen),
+                            tick(Kind::MarkdownCodeSpanStart, "`"),
+                        ],
+                    ),
+                    (6, vec![tick(Kind::MarkdownCodeSpanEnd, "`")]),
+                    (7, vec![open(Kind::ParagraphClose)]),
+                ],
+            ),
+            (
+                "a ``b\nc`` d",
+                vec![
+                    (0, vec![open(Kind::ParagraphOpen)]),
+                    (2, vec![tick(Kind::MarkdownCodeSpanStart, "``")]),
+                    (7, vec![tick(Kind::MarkdownCodeSpanEnd, "``")]),
+                    (11, vec![open(Kind::ParagraphClose)]),
+                ],
+            ),
+            (
+                "\\`a `b",
+                vec![
+                    (0, vec![open(Kind::ParagraphOpen)]),
+                    (6, vec![open(Kind::ParagraphClose)]),
+                ],
+            ),
+            (
+                "\\\\`a`",
+                vec![
+                    (0, vec![open(Kind::ParagraphOpen)]),
+                    (2, vec![tick(Kind::MarkdownCodeSpanStart, "`")]),
+                    (4, vec![tick(Kind::MarkdownCodeSpanEnd, "`")]),
+                    (5, vec![open(Kind::ParagraphClose)]),
+                ],
+            ),
+            (
+                "a\\b `c`",
+                vec![
+                    (0, vec![open(Kind::ParagraphOpen)]),
+                    (4, vec![tick(Kind::MarkdownCodeSpanStart, "`")]),
+                    (6, vec![tick(Kind::MarkdownCodeSpanEnd, "`")]),
+                    (7, vec![open(Kind::ParagraphClose)]),
+                ],
+            ),
+            (
+                "# `a`",
+                vec![
+                    (0, vec![open(Kind::HeaderOpen)]),
+                    (2, vec![tick(Kind::MarkdownCodeSpanStart, "`")]),
+                    (4, vec![tick(Kind::MarkdownCodeSpanEnd, "`")]),
+                    (5, vec![open(Kind::HeaderClose)]),
+                ],
+            ),
+        ];
+        for (text, expected) in cases {
+            let positions = parse(text);
+
+            let expected = Positions(expected.into_iter().collect());
             assert_eq!(positions, Some(Ok(expected)), "{text:?}");
         }
     }

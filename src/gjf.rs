@@ -602,6 +602,10 @@ mod tests {
                 ),
             ),
             (
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-code-span/input.java"),
+                include_str!("../tests/fixtures/gjf/javadoc-markdown-code-span/expected.java"),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/javadoc-literal-lt/input.java"),
                 include_str!("../tests/fixtures/gjf/javadoc-literal-lt/expected.java"),
             ),
@@ -1234,6 +1238,42 @@ mod tests {
     #[test]
     fn when_format_with_markdown_javadoc_then_returns_the_oracle_output() {
         let cases = [
+            (
+                "class A {\n  ///   Ends   with `code`\n  void f() {}\n}\n",
+                "class A {\n  /// Ends with `code`\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// Use `a` and ``b`c`` here, and `unclosed text that runs on filler words to push the text well past the column limit of one hundred characters here\n  void f() {}\n}\n",
+                "class A {\n  /// Use `a` and ``b`c`` here, and `unclosed text that runs on filler words to push the text well\n  /// past the column limit of one hundred characters here\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// Escaped \\`not code\\` and `real code span here` with more filler words to push the text well past the column limit of one hundred characters here\n  void f() {}\n}\n",
+                "class A {\n  /// Escaped \\`not code\\` and `real code span here` with more filler words to push the text well\n  /// past the column limit of one hundred characters here\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// Doubled `` `x` `` ticks filler words to push the text well past the column limit of one hundred characters here\n  void f() {}\n}\n",
+                "class A {\n  /// Doubled `` `x` `` ticks filler words to push the text well past the column limit of one\n  /// hundred characters here\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// Starts a span `across\n  /// lines with` more words filler words to push the text well past the column limit of one hundred characters here\n  void f() {}\n}\n",
+                "class A {\n  /// Starts a span `across lines with` more words filler words to push the text well past the\n  /// column limit of one hundred characters here\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// A tag `{@code x}` in a span and {@code y} outside filler words to push the text well past the column limit of one hundred characters here\n  void f() {}\n}\n",
+                "class A {\n  /// A tag `{@code x}` in a span and {@code y} outside filler words to push the text well past the\n  /// column limit of one hundred characters here\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// Text `a\n  /// @param b` still code filler words to push the text well past the column limit of one hundred characters here\n  void f() {}\n}\n",
+                "class A {\n  /// Text `a @param b` still code filler words to push the text well past the column limit of one\n  /// hundred characters here\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// [`List`](https://example.com/list) is a link filler words to push the text well past the column limit of one hundred characters here\n  void f() {}\n}\n",
+                "class A {\n  /// [`List`](https://example.com/list) is a link filler words to push the text well past the\n  /// column limit of one hundred characters here\n  void f() {}\n}\n",
+            ),
+            (
+                "class A {\n  /// foo`bar`baz glued together and then the rest of the sentence goes on filler words to push the text well past the column limit of one hundred characters here\n  void f() {}\n}\n",
+                "class A {\n  /// foo`bar`baz glued together and then the rest of the sentence goes on filler words to push the\n  /// text well past the column limit of one hundred characters here\n  void f() {}\n}\n",
+            ),
             (
                 "class A {\n  /// First line\\\n  /// second line with \\* an escaped star and a long tail that makes this line wrap past the column limit.\n  void f() {}\n}\n",
                 "class A {\n  /// First line\\\n  /// second line with \\* an escaped star and a long tail that makes this line wrap past the column\n  /// limit.\n  void f() {}\n}\n",
