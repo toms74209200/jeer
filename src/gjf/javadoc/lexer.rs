@@ -29,6 +29,8 @@ pub enum Kind {
     Whitespace,
     ForcedNewline,
     MarkdownHardLineBreak,
+    MarkdownCodeSpanStart,
+    MarkdownCodeSpanEnd,
     Literal,
 }
 
@@ -78,6 +80,7 @@ enum Context {
     Snippet,
     Brace,
     InlineTag,
+    MarkdownCode,
 }
 
 const PRESERVING: fn(&Context) -> bool = |open| {
@@ -123,6 +126,43 @@ struct State<'a> {
 }
 
 impl State<'_> {
+    fn insert(&mut self, text: &str, position: usize) -> Option<usize> {
+        let tokens = match self.flavor {
+            Flavor::Classic => &[][..],
+            Flavor::Markdown(positions) => &positions[position],
+        };
+        let consumed = tokens.iter().try_fold(0, |consumed, token| {
+            let kind = match token.kind {
+                Kind::MarkdownCodeSpanStart => {
+                    self.stack.push(Context::MarkdownCode);
+                    Kind::Literal
+                }
+                Kind::MarkdownCodeSpanEnd => {
+                    let open = self
+                        .stack
+                        .iter()
+                        .rposition(|open| *open == Context::MarkdownCode);
+                    self.stack.truncate(open.unwrap_or(self.stack.len()));
+                    Kind::Literal
+                }
+                kind => kind,
+            };
+            self.tokens.push(Token {
+                kind,
+                value: token.value.clone(),
+            });
+            text[position + consumed..]
+                .starts_with(&token.value)
+                .then_some(consumed + token.value.len())
+        })?;
+        match consumed {
+            0 => Some(0),
+            _ => self
+                .insert(text, position + consumed)
+                .map(|more| consumed + more),
+        }
+    }
+
     fn classify(&mut self, rest: &str) -> Option<(Kind, usize)> {
         let preserve = self.stack.iter().any(PRESERVING);
         let either = |preserved: Kind, otherwise: Kind| match preserve {
@@ -136,6 +176,11 @@ impl State<'_> {
         }
         if spaces > 0 {
             return Some((either(Kind::Literal, Kind::Whitespace), 1));
+        }
+        if self.stack.contains(&Context::MarkdownCode) {
+            let first = rest.chars().next().map_or(0, char::len_utf8);
+            let word = rest[first..].trim_start_matches(|c| !" \t\n`".contains(c));
+            return Some((Kind::Literal, rest.len() - word.len()));
         }
         let escape = match self.flavor {
             Flavor::Classic => None,
@@ -279,10 +324,6 @@ pub fn lex(text: &str, flavor: Flavor) -> Option<Vec<Token>> {
         Flavor::Classic => ("/**", "*/"),
         Flavor::Markdown(_) => ("///", ""),
     };
-    let at = |position: usize| match flavor {
-        Flavor::Classic => &[][..],
-        Flavor::Markdown(positions) => &positions[position],
-    };
     let mut state = State {
         tokens: vec![Token::from((Kind::BeginJavadoc, begin))],
         stack: Vec::new(),
@@ -291,12 +332,15 @@ pub fn lex(text: &str, flavor: Flavor) -> Option<Vec<Token>> {
     };
     let mut rest = text;
     while !rest.is_empty() {
-        state.tokens.extend_from_slice(at(text.len() - rest.len()));
+        rest = &rest[state.insert(text, text.len() - rest.len())?..];
+        if rest.is_empty() {
+            break;
+        }
         let (kind, length) = state.classify(rest)?;
         state.tokens.push(Token::from((kind, &rest[..length])));
         rest = &rest[length..];
     }
-    state.tokens.extend_from_slice(at(text.len()));
+    state.insert(text, text.len())?;
     if !state.stack.is_empty() {
         return None;
     }
@@ -389,6 +433,8 @@ fn join_literals(input: Vec<Token>) -> Vec<Token> {
             | Kind::HtmlComment
             | Kind::OptionalLineBreak
             | Kind::MarkdownHardLineBreak
+            | Kind::MarkdownCodeSpanStart
+            | Kind::MarkdownCodeSpanEnd
             | Kind::ForcedNewline => output.extend(tokens.next()),
         }
     }
