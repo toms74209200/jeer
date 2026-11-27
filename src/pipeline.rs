@@ -112,6 +112,7 @@ pub enum Profile {
     LexerRoundtrip,
     CstRoundtrip,
     Gjf,
+    GjfReflow,
 }
 
 impl std::str::FromStr for Profile {
@@ -126,6 +127,7 @@ impl std::str::FromStr for Profile {
             "lexer-roundtrip" => Ok(Profile::LexerRoundtrip),
             "cst-roundtrip" => Ok(Profile::CstRoundtrip),
             "gjf" => Ok(Profile::Gjf),
+            "gjf-reflow" => Ok(Profile::GjfReflow),
             other => Err(format!("unknown profile: {other}")),
         }
     }
@@ -184,6 +186,12 @@ impl Profile {
             Profile::Gjf => vec![
                 Box::new(steps::line_endings::apply),
                 Box::new(gjf::step(gjf::Options::default())),
+            ],
+            Profile::GjfReflow => vec![
+                Box::new(steps::line_endings::apply),
+                Box::new(gjf::step(gjf::Options {
+                    reflow_long_strings: true,
+                })),
             ],
         }
     }
@@ -326,6 +334,15 @@ mod tests {
                 "a  \n// spotless:off\nb  \n// spotless:on\n",
                 Ok("a\n// spotless:off\nb  \n// spotless:on\n".to_owned()),
             ),
+            (
+                Profile::GjfReflow,
+                include_str!("../tests/fixtures/gjf-reflow/reflow-argument/input.java"),
+                Ok(
+                    include_str!("../tests/fixtures/gjf-reflow/reflow-argument/expected.java")
+                        .to_owned(),
+                ),
+            ),
+            (Profile::GjfReflow, "class A {", Err((1, 10))),
         ];
         for (profile, source, expected) in cases {
             let formatted = profile.pipeline()(source).map_err(|r| (r.line, r.column));
@@ -341,6 +358,7 @@ mod tests {
             ("lexer-roundtrip", Ok(Profile::LexerRoundtrip)),
             ("cst-roundtrip", Ok(Profile::CstRoundtrip)),
             ("gjf", Ok(Profile::Gjf)),
+            ("gjf-reflow", Ok(Profile::GjfReflow)),
             ("import-order", Ok(Profile::ImportOrder)),
             ("unused-imports", Ok(Profile::UnusedImports)),
             ("toggle", Ok(Profile::Toggle)),
