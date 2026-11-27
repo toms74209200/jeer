@@ -184,7 +184,7 @@ Every check is a script under `scripts/`; shampoo calls it through `scripts/brie
 The only exception to a lint is `#[expect(<lint>, reason = "<reason>")]`; lint levels are set in `Cargo.toml`, never in code.
 
 ### 8.2 Commits
-A task (a PR) is made of minimal commits: one commit, one subject, and everything staged is needed either for the subject to be true or for the checks to pass. Every commit passes the checks on its own (`.githooks/pre-commit` runs the small checks on what is staged, in a clean worktree); fixtures never share a commit with the implementation they judge (§8.4).
+A task (a PR) is made of minimal commits: one commit, one subject, and everything staged is needed either for the subject to be true or for the checks to pass. A commit that changes a policy or a rule (`.shampoo/policies/`, `.shampoo/rules/`) records, in a body paragraph starting with "Walk", one line per step the change asks for: who does it, where, and how a review sees it (reviews policy); `scripts/check-commit.sh --rev` checks the paragraph is there, in CI and at the PR transition (the commit-msg hook cannot list the files of an amended commit, so it leaves this to them). Every commit passes the checks on its own (`.githooks/pre-commit` runs the small checks on what is staged, in a clean worktree); fixtures never share a commit with the implementation they judge (§8.4).
 
 ```
 :<gitmoji>: <Verb> <what>
