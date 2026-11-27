@@ -2,9 +2,11 @@ text = '''
 Tasks are the files in tasks/, taken in the order of their names. A task
 that turns out too large for one reviewable PR is split: do the first part,
 and in the same PR add task files for the rest, named so they sort right
-after it, each with its own "Done when". A finding outside the task, such
+after it, or after a later task their Done-when needs (see below), each
+with its own "Done when". A finding outside the task, such
 as a mismatch class for later, becomes a task file in the PR, not a change.
 - A task changes one bounded context (one module root, `src/<context>.rs` and `src/<context>/`) plus the fixtures and tests that judge it; a change that needs another context's internals is a task of its own
+- A task file added in a PR is named so it sorts after every task that provides what its Done-when needs: another context's API, a construct of its own context, or a rejection position, such as `pipeline`'s `LINE_UNDEFINED`, which comes with the task that adds it. Check the tasks sorted before the name against the Done-when before choosing it
 - A task's PR stays small enough to review in one pass, a few hundred changed lines of src; when it grows past that, the rest becomes task files
 - A review judges the task's Done-when and the policies on the diff; mismatches outside the Done-when become task files instead of rounds of review
 - A fixtures task uses only constructs of tasks sorted at or before the implementation it specifies. When an implementation task finds a fixture that needs a later task's construct, it stops and does a fixtures task first, from master on a branch named after its file (`<number>-fixtures-<subject>`, sorted right before the implementation): its first commit adds the task file with its Done-when (`:memo:`), which the review judges; the PR names the blocked fixture, still skipped, in the later task's Done-when and adds a replacement of the implementation's own constructs; its last commit deletes the task file as done. The implementation resumes on its branch, rebased, once that PR is merged'''
