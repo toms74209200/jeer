@@ -20,4 +20,4 @@ The oracle rejects it at `L5 ... <identifier> expected`, and jeer at 8:3.
 
 ## Done when
 - Oracle fixtures, added in a fixtures task first, cover `<identifier> expected` after a newline and after a comment, and pass
-- Every `<identifier> expected` the parser reports is at the position javac reports it
+- Every `<identifier> expected` the parser reports is at the position javac reports it, except at a lambda parameter and a case label's record pattern, where javac first decides what it parses with JavacParser.analyzeParens and analyzePattern (task 155h)

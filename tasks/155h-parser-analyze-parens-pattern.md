@@ -1,0 +1,11 @@
+# Port javac's lookahead for lambdas and case labels
+
+Bounded context: `parser` (`src/parser/expressions.rs`, `src/parser/statements.rs`).
+
+javac decides what a parenthesis or a case label holds before it parses it: JavacParser.analyzeParens (line 1967 of JDK 25's JavacParser.java) tells a cast, a parenthesized expression and an explicit or implicit lambda apart, and analyzePattern (line 3395) tells a pattern from an expression in a case label. Where a name is missing, the result decides javac's error: in an explicit lambda or a pattern, ident() reports `<identifier> expected` at the end of the previous token; as a cast or an expression, the next token gets another error. Task 155 keeps jeer at the next token at both sites, as before, with `<identifier> expected`; `instanceof` always parses a pattern, which task 155 reports at the previous token's end. Found in task 155's review, oracle lines against jeer:
+- Lambda parameters: `(int` then `) -> 1`, `(@X int` then `)`, `(List<T>` then `)` are a cast in javac (`illegal start of expression`, the next token's line, which jeer matches); `(final int` then `)`, `(a.b.C` then `)`, `(a.B<T>.C` then `)`, `(B...` then `)`, `(int a, int` then `)` and `(int /* c` then ` */, int b)` are an explicit lambda (`<identifier> expected` at the previous token's end), where jeer is a line later
+- Case labels: `case R(int` then `) -> {}`, `): break;`, `case R(S(int` then `))`, `R(int[]` then `)`, `R(S(int` then `) s)` are an expression in javac (`'.class' expected` at the next token); `R(final int` then `)`, `R(int` then `) when x`, `R(S(int` then `)) when x`, `R(int a, int` then `)`, `R(int` then `, int b)`, `R(int` then `, S s)`, `R(int` then `, _)`, `R(int` then `), S s` are a pattern (`<identifier> expected` at the previous token's end), where jeer is a line later; `case final String` then `->` is `<identifier> expected` at L4 where jeer reports `illegal start of expression` on that line
+
+## Done when
+- Oracle fixtures, added in a fixtures task first, cover each form above, and pass with javac's message and line
+- The parser decides a lambda's parameters and a case label as analyzeParens and analyzePattern do, and reports a missing name at javac's position with javac's message
