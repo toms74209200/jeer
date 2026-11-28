@@ -1,3 +1,4 @@
+use super::entity_table;
 use super::lexer::{Kind, Token};
 use std::collections::HashMap;
 
@@ -327,6 +328,55 @@ fn html_block(content: &str) -> Option<HtmlStart> {
     starts
         .into_iter()
         .find_map(|(starts, ending)| starts.then_some(ending))
+}
+
+const UNITS: fn(u32) -> Vec<u16> = |code| match (code, char::from_u32(code)) {
+    (0, _) => vec![0xFFFD],
+    (_, Some(decoded)) => decoded.encode_utf16(&mut [0; 2]).to_vec(),
+    (_, None) => u16::try_from(code).map_or(vec![0xFFFD], |unit| vec![unit]),
+};
+
+fn unescape(text: &str) -> Vec<u16> {
+    let Some(at) = text.find(['\\', '&']) else {
+        return text.encode_utf16().collect();
+    };
+    let rest = &text[at..];
+    let escaped = rest
+        .strip_prefix('\\')
+        .and_then(|tail| tail.chars().next())
+        .filter(|c| ESCAPABLE.contains(*c))
+        .map(|c| (c.encode_utf16(&mut [0; 2]).to_vec(), 1 + c.len_utf8()));
+    let entity = rest.strip_prefix('&').and_then(|tail| {
+        let Some(number) = tail.strip_prefix('#') else {
+            let run = tail.len()
+                - tail
+                    .trim_start_matches(|c: char| c.is_ascii_alphanumeric())
+                    .len();
+            let found = entity_table::NAMED_CHARACTER_REFERENCES
+                .binary_search_by(|(name, _)| (*name).cmp(&tail[..run]))
+                .ok()
+                .filter(|_| tail[run..].starts_with(';'))?;
+            let value = entity_table::NAMED_CHARACTER_REFERENCES[found].1;
+            return Some((value.encode_utf16().collect(), 1 + run + 1));
+        };
+        let (digits, radix, most, prefix) = match number.strip_prefix(['x', 'X']) {
+            Some(hex) => (hex, 16, 6, 2),
+            None => (number, 10, 7, 1),
+        };
+        let run = digits.len() - digits.trim_start_matches(|c: char| c.is_digit(radix)).len();
+        (run <= most && digits[run..].starts_with(';'))
+            .then_some(())
+            .and_then(|()| u32::from_str_radix(&digits[..run], radix).ok())
+            .map(|code| (UNITS(code), 1 + prefix + run + 1))
+    });
+    let (decoded, length) = escaped
+        .or(entity)
+        .unwrap_or_else(|| (vec![rest.as_bytes()[0].into()], 1));
+    text[..at]
+        .encode_utf16()
+        .chain(decoded)
+        .chain(unescape(&text[at + length..]))
+        .collect()
 }
 
 fn definition(state: Definition, rest: &str) -> Definition {
@@ -684,17 +734,7 @@ impl<'a> Parser<'a> {
                     let first = open.lines.first().copied().unwrap_or((at, at));
                     let rest = open.lines.get(1..).unwrap_or(&[]);
                     let info = text[first.0..first.1].trim_matches(|c: char| c <= ' ');
-                    let mut chars = info.chars().peekable();
-                    let unescaped: String = std::iter::from_fn(|| {
-                        let c = chars.next()?;
-                        Some(match (c, chars.peek()) {
-                            ('\\', Some(next)) if ESCAPABLE.contains(*next) => {
-                                chars.next().unwrap_or(c)
-                            }
-                            _ => c,
-                        })
-                    })
-                    .collect();
+                    let unescaped = String::from_utf16_lossy(&unescape(info));
                     let literal: String = rest
                         .iter()
                         .map(|&(from, to)| format!("{}\n", &text[from..to]))
@@ -1021,18 +1061,26 @@ impl<'a> Parser<'a> {
                 Ok(Some(Start::Heading(self.offset + next.index + hashes)))
             }
             false if paragraph && underline => Err(Stop::Unsupported),
-            false if let Some((character, length, rest)) = fence => match rest.contains('&') {
-                true => Err(Stop::NotPorted),
-                false => Ok(Some(Start::Fence(
-                    Block::Fence {
-                        character,
-                        length,
-                        indent,
-                        closing: None,
-                    },
-                    next.index + length,
-                ))),
-            },
+            false if let Some((character, length, info)) = fence => {
+                let later = std::iter::successors(Some(Some(info.to_owned())), |text| {
+                    let text = text.as_ref()?;
+                    let next = String::from_utf16(&unescape(text)).ok();
+                    (next.as_ref() != Some(text)).then_some(next)
+                })
+                .any(|text| text.is_none_or(|text| character == '`' && text.contains('`')));
+                match later {
+                    true => Err(Stop::NotPorted),
+                    false => Ok(Some(Start::Fence(
+                        Block::Fence {
+                            character,
+                            length,
+                            indent,
+                            closing: None,
+                        },
+                        next.index + length,
+                    ))),
+                }
+            }
             false if let Some(ending) = html => Ok(Some(Start::Html(ending))),
             false if thematic => Err(Stop::Unsupported),
             false => self.list(matched, paragraph, next, indent),
@@ -1579,10 +1627,15 @@ mod tests {
     fn when_parse_with_a_construct_not_ported_yet_then_returns_none() {
         let cases = [
             "`a \u{2028}b`",
+            "```a&#xDE00;b",
+            "```a&#xD83D;&amp;#xDE00;b",
+            "```a&amp;#xDE00;b",
+            "```a&amp;amp;#xDE00;b",
+            "```a&amp;#xD83D;&amp;amp;#xDE00;b",
+            "```a &#96;a &#x2028;b&#96;",
             "- a\n  \t- b",
             "-\ta",
             "-  - a\n    \t- -x",
-            "~~~ a&amp;b",
         ];
         for text in cases {
             let positions = parse(text);
@@ -1867,6 +1920,18 @@ mod tests {
                         token(Kind::FenceStart, "```a_b"),
                         token(Kind::FenceLiteral, "x\n"),
                         token(Kind::FenceEnd, "````"),
+                    ],
+                )],
+            ),
+            (
+                "~~~a&#96;b",
+                vec![(
+                    0,
+                    vec![
+                        token(Kind::MarkdownFencedCodeBlock, "~~~a&#96;b"),
+                        token(Kind::FenceStart, "~~~a`b"),
+                        token(Kind::FenceLiteral, ""),
+                        token(Kind::FenceEnd, "~~~"),
                     ],
                 )],
             ),
@@ -2168,5 +2233,55 @@ mod tests {
         let positions = parse(text);
 
         assert_eq!(positions, Some(Err(Unsupported)));
+    }
+
+    #[test]
+    fn when_parse_with_a_fence_info_holding_escapes_or_entities_then_returns_it_decoded() {
+        let cases = [
+            ("a&amp;b", "a&b"),
+            ("a&AMP;b", "a&b"),
+            ("a&Amp;b", "a&Amp;b"),
+            ("a&amp b", "a&amp b"),
+            ("a&ngE;b", "a\u{2267}\u{338}b"),
+            ("a&NewLine;b", "a\nb"),
+            ("a&#65;b", "aAb"),
+            ("a&#x41;b", "aAb"),
+            ("a&#X4a;b", "aJb"),
+            ("a&#0;b", "a\u{FFFD}b"),
+            ("a&#x110000;b", "a\u{FFFD}b"),
+            ("a&#9999999;b", "a\u{FFFD}b"),
+            ("a&#12345678;b", "a&#12345678;b"),
+            ("a&#x1234567;b", "a&#x1234567;b"),
+            ("a&#;b", "a&#;b"),
+            ("a&#x;b", "a&#x;b"),
+            ("a&#65b", "a&#65b"),
+            ("a&#xD83D;&#xDE00;b", "a\u{1F600}b"),
+            ("a&frac12;b", "a\u{BD}b"),
+            ("a\\&amp;b", "a&amp;b"),
+            ("a\\\\&amp;b", "a\\&b"),
+            ("a\\qb", "a\\qb"),
+            ("a\\", "a\\"),
+        ];
+        for (info, decoded) in cases {
+            let text = format!("```{info}");
+
+            let positions = parse(&text);
+
+            let token = |kind: Kind, value: &str| Token::from((kind, value));
+            let expected = Positions(
+                [(
+                    0,
+                    vec![
+                        token(Kind::MarkdownFencedCodeBlock, &text),
+                        token(Kind::FenceStart, &format!("```{decoded}")),
+                        token(Kind::FenceLiteral, ""),
+                        token(Kind::FenceEnd, "```"),
+                    ],
+                )]
+                .into_iter()
+                .collect(),
+            );
+            assert_eq!(positions, Some(Ok(expected)), "{info:?}");
+        }
     }
 }
