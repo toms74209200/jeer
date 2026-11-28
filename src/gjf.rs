@@ -1081,7 +1081,7 @@ mod tests {
     #[test]
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
-            "/// a <b>x</b>\nclass A {}\n",
+            "/// a\0\nclass A {}\n",
             "class A { <T> @B int f() { return 0; } }\n",
             "class A { void f(A this) {} }\n",
             "class A { int @B [] x; }\n",
@@ -1254,6 +1254,10 @@ mod tests {
     #[test]
     fn when_format_with_markdown_javadoc_then_returns_the_oracle_output() {
         let cases = [
+            (
+                "class A {\n  /// Values:\n  /// <ul>\n  /// <li>the first value, described at a length that goes past the column limit of the line\n  /// <li>the second\n  /// </ul>\n  /// After the list.\n  void f() {}\n}\n",
+                "class A {\n  /// Values: <ul>\n  ///   <li>the first value, described at a length that goes past the column limit of the line\n  ///   <li>the second </ul> After the list.\n  void f() {}\n}\n",
+            ),
             (
                 "class A {\n  /// a|b\n  /// :-:\n  /// rest   text with enough words after it that the formatter has to wrap this line onto the next one\n  int f(int x) {\n    return x;\n  }\n}\n",
                 "class A {\n  /// a|b :-: rest text with enough words after it that the formatter has to wrap this line onto the\n  /// next one\n  int f(int x) {\n    return x;\n  }\n}\n",
