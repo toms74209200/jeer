@@ -1,3 +1,4 @@
+mod entity_table;
 pub mod letter_table;
 pub mod lexer;
 pub mod markdown;
