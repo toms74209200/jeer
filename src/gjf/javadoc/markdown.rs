@@ -88,6 +88,247 @@ fn balanced(text: &str, parens: usize) -> Option<&str> {
     }
 }
 
+const DESTINATION: fn(&str) -> Option<&str> = |text| match text.strip_prefix('<') {
+    Some(inner) => scan(inner, &|c| match c {
+        '>' => Some(true),
+        '\n' | '<' => Some(false),
+        _ => None,
+    })
+    .and_then(|rest| rest.strip_prefix('>')),
+    None => balanced(text, 0),
+};
+
+const UNQUOTED_IN_BLOCK: fn(char) -> bool = |c| c > ' ' && !"\"'=<>`".contains(c);
+
+const UNQUOTED_INLINE: fn(char) -> bool = |c| !WHITESPACE.contains(&c) && !"\"'=<>`".contains(c);
+
+fn attributes(text: &str, unquoted: fn(char) -> bool) -> Option<&str> {
+    let spaced = SKIP(text);
+    let name = spaced
+        .strip_prefix(|c: char| c.is_ascii_alphabetic() || "_:".contains(c))
+        .filter(|_| spaced.len() < text.len());
+    let Some(name) = name else {
+        return spaced.strip_prefix('/').unwrap_or(spaced).strip_prefix('>');
+    };
+    let named = name.trim_start_matches(|c: char| c.is_ascii_alphanumeric() || "_.:-".contains(c));
+    let Some(value) = SKIP(named).strip_prefix('=') else {
+        return attributes(named, unquoted);
+    };
+    let value = SKIP(value);
+    let rest = match value.chars().next() {
+        Some(quote @ ('"' | '\'')) => value[1..].find(quote).map(|end| &value[end + 2..]),
+        _ => Some(value.trim_start_matches(unquoted)).filter(|rest| rest.len() < value.len()),
+    }?;
+    attributes(rest, unquoted)
+}
+
+const TAG_NAME: fn(&str) -> Option<&str> = |rest| {
+    rest.strip_prefix(|c: char| c.is_ascii_alphabetic())
+        .map(|after| after.trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '-'))
+};
+
+fn tag(text: &str, unquoted: fn(char) -> bool) -> Option<&str> {
+    let inner = text.strip_prefix('<')?;
+    match inner.strip_prefix('/') {
+        Some(closing) => SKIP(TAG_NAME(closing)?).strip_prefix('>'),
+        None => attributes(TAG_NAME(inner)?, unquoted),
+    }
+}
+
+const AUTOLINK: fn(&str) -> Option<&str> = |text| {
+    let (content, rest) = text.split_once('>')?;
+    let uri = content.split_once(':').is_some_and(|(scheme, rest)| {
+        (2..=32).contains(&scheme.len())
+            && scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+            && scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || ".+-".contains(c))
+            && !rest.contains(|c: char| c <= ' ' || c == '<' || c == '>')
+    });
+    let email = content.split_once('@').is_some_and(|(local, domain)| {
+        local
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || ".!#$%&'*+/=?^_`{|}~-".contains(c))
+            && domain.split('.').all(|label| {
+                (1..=63).contains(&label.len())
+                    && label.starts_with(|c: char| c.is_ascii_alphanumeric())
+                    && label.ends_with(|c: char| c.is_ascii_alphanumeric())
+                    && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            })
+    });
+    (uri || email).then_some(rest)
+};
+
+fn inline_html(text: &str) -> Option<&str> {
+    let inner = &text[1..];
+    match inner.chars().next()? {
+        '?' => {
+            let body = &inner[1..];
+            let end = body.find("?>")?;
+            (!body.starts_with('?') && !body[..=end].contains("??")).then(|| &body[end + 2..])
+        }
+        '!' => {
+            let bang = &inner[1..];
+            match bang.chars().next()? {
+                '-' => bang.strip_prefix("--").and_then(|body| {
+                    body.strip_prefix('>')
+                        .or_else(|| body.strip_prefix("->"))
+                        .or_else(|| body.find("-->").map(|end| &body[end + 3..]))
+                }),
+                '[' => bang
+                    .strip_prefix("[CDATA[")
+                    .and_then(|body| body.find("]]>").map(|end| &body[end + 3..])),
+                letter if letter.is_ascii_alphabetic() => {
+                    let letters = bang.trim_start_matches(|c: char| c.is_ascii_alphabetic());
+                    let spaced = SKIP(letters);
+                    (spaced.len() < letters.len())
+                        .then(|| spaced.find('>').map(|end| &spaced[end + 1..]))
+                        .flatten()
+                }
+                _ => None,
+            }
+        }
+        _ => tag(text, UNQUOTED_INLINE),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HtmlStart {
+    Interrupting(Ending),
+    NotInterrupting,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ending {
+    BlankLine,
+    Closer(&'static [&'static str]),
+    Finished,
+}
+
+const RAW_TEXT: [&str; 4] = ["script", "pre", "style", "textarea"];
+
+const BLOCK_NAMES: [&str; 62] = [
+    "address",
+    "article",
+    "aside",
+    "base",
+    "basefont",
+    "blockquote",
+    "body",
+    "caption",
+    "center",
+    "col",
+    "colgroup",
+    "dd",
+    "details",
+    "dialog",
+    "dir",
+    "div",
+    "dl",
+    "dt",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "frame",
+    "frameset",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "head",
+    "header",
+    "hr",
+    "html",
+    "iframe",
+    "legend",
+    "li",
+    "link",
+    "main",
+    "menu",
+    "menuitem",
+    "nav",
+    "noframes",
+    "ol",
+    "optgroup",
+    "option",
+    "p",
+    "param",
+    "search",
+    "section",
+    "summary",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "title",
+    "tr",
+    "track",
+    "ul",
+];
+
+fn html_block(content: &str) -> Option<HtmlStart> {
+    let lower = content.to_ascii_lowercase();
+    let inner = lower.strip_prefix('<')?;
+    let spaced = |rest: &str| rest.is_empty() || rest.starts_with(WHITESPACE);
+    let named = |names: &[&str], rest: &str, ends: &dyn Fn(&str) -> bool| {
+        names
+            .iter()
+            .any(|name| rest.strip_prefix(name).is_some_and(ends))
+    };
+    let starts = [
+        (
+            named(&RAW_TEXT, inner, &|rest| {
+                spaced(rest) || rest.starts_with('>')
+            }),
+            HtmlStart::Interrupting(Ending::Closer(&[
+                "</script>",
+                "</pre>",
+                "</style>",
+                "</textarea>",
+            ])),
+        ),
+        (
+            inner.starts_with("!--"),
+            HtmlStart::Interrupting(Ending::Closer(&["-->"])),
+        ),
+        (
+            inner.starts_with('?'),
+            HtmlStart::Interrupting(Ending::Closer(&["?>"])),
+        ),
+        (
+            content[1..]
+                .strip_prefix('!')
+                .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_uppercase())),
+            HtmlStart::Interrupting(Ending::Closer(&[">"])),
+        ),
+        (
+            content.starts_with("<![CDATA["),
+            HtmlStart::Interrupting(Ending::Closer(&["]]>"])),
+        ),
+        (
+            named(
+                &BLOCK_NAMES,
+                inner.strip_prefix('/').unwrap_or(inner),
+                &|rest| spaced(rest) || rest.strip_prefix('/').unwrap_or(rest).starts_with('>'),
+            ),
+            HtmlStart::Interrupting(Ending::BlankLine),
+        ),
+        (
+            tag(content, UNQUOTED_IN_BLOCK).is_some_and(|rest| SKIP(rest).is_empty()),
+            HtmlStart::NotInterrupting,
+        ),
+    ];
+    starts
+        .into_iter()
+        .find_map(|(starts, ending)| starts.then_some(ending))
+}
+
 fn definition(state: Definition, rest: &str) -> Definition {
     let failed = (Definition::Paragraph, "");
     let (next, rest) = match (state, rest.is_empty()) {
@@ -124,7 +365,7 @@ fn definition(state: Definition, rest: &str) -> Definition {
             }
         }),
         (Definition::Destination, false) => {
-            let scanned = balanced(SKIP(rest), 0);
+            let scanned = DESTINATION(SKIP(rest));
             scanned.map_or(failed, |after| {
                 let tail = SKIP(after);
                 match (tail.is_empty(), tail.len() == after.len()) {
@@ -171,7 +412,7 @@ struct Bracket {
 
 fn link(text: &str, from: usize) -> Option<usize> {
     let inner = SKIP(text[from..].strip_prefix('(')?);
-    let destination = balanced(inner, 0)?;
+    let destination = DESTINATION(inner)?;
     let spaced = SKIP(destination);
     let titled = match (spaced.len() < destination.len(), spaced.chars().next()) {
         (true, Some(open @ ('"' | '\'' | '('))) => {
@@ -186,7 +427,7 @@ fn link(text: &str, from: usize) -> Option<usize> {
 
 fn inlines(text: &str, from: usize, brackets: Vec<Bracket>) -> Vec<(usize, Token)> {
     let Some(start) = text[from..]
-        .find(['`', '\\', '[', ']', '!'])
+        .find(['`', '\\', '[', ']', '!', '<'])
         .map(|offset| from + offset)
     else {
         return Vec::new();
@@ -227,6 +468,15 @@ fn inlines(text: &str, from: usize, brackets: Vec<Bracket>) -> Vec<(usize, Token
             Some((_, earlier)) => inlines(text, start + 1, earlier.to_vec()),
             None => inlines(text, start + 1, brackets),
         },
+        Some('<') => {
+            let rest = &text[start..];
+            let parsed = AUTOLINK(&rest[1..]).or_else(|| inline_html(rest));
+            inlines(
+                text,
+                parsed.map_or(start + 1, |after| text.len() - after.len()),
+                brackets,
+            )
+        }
         Some('`') => {
             let run = text[start..].len() - text[start..].trim_start_matches('`').len();
             let ticks = &text[start..start + run];
@@ -272,6 +522,7 @@ enum Block {
     Table {
         lazy: bool,
     },
+    Html(Ending),
 }
 
 struct Open {
@@ -295,6 +546,13 @@ enum Space {
     Blank(Cursor),
     Content { next: Cursor, indent: usize },
 }
+
+const LAZY: fn(Option<Block>) -> bool = |active| {
+    matches!(
+        active,
+        Some(Block::Paragraph { .. } | Block::Table { lazy: true })
+    )
+};
 
 const COLUMN: fn(usize, char) -> usize = |column, c| match c {
     '\t' => column + 4 - column % 4,
@@ -323,6 +581,7 @@ enum Start {
     Blocks(Vec<Block>, usize),
     Heading(usize),
     Fence(Block, usize),
+    Html(Ending),
     Table,
 }
 
@@ -376,7 +635,7 @@ impl<'a> Parser<'a> {
                 Block::Paragraph { first: true, .. } => None,
                 Block::Paragraph { first: false, .. } => Some(Kind::ParagraphClose),
                 Block::Heading { .. } => Some(Kind::HeaderClose),
-                Block::Fence { .. } | Block::Table { .. } => None,
+                Block::Fence { .. } | Block::Table { .. } | Block::Html(_) => None,
             };
             let start = open.start.unwrap_or(end);
             let opening = match open.block {
@@ -392,7 +651,8 @@ impl<'a> Parser<'a> {
                 | Block::Quote
                 | Block::Paragraph { first: true, .. }
                 | Block::Heading { .. }
-                | Block::Fence { .. } => None,
+                | Block::Fence { .. }
+                | Block::Html(_) => None,
             };
             self.events.extend(opening.map(|token| (start, token)));
             let lines = match open.block {
@@ -403,7 +663,8 @@ impl<'a> Parser<'a> {
                 | Block::Item { .. }
                 | Block::Quote
                 | Block::Fence { .. }
-                | Block::Table { .. } => Vec::new(),
+                | Block::Table { .. }
+                | Block::Html(_) => Vec::new(),
             };
             let text = self.text;
             let fenced = match open.block {
@@ -467,7 +728,8 @@ impl<'a> Parser<'a> {
                 | Block::Quote
                 | Block::Paragraph { .. }
                 | Block::Heading { .. }
-                | Block::Table { .. } => Vec::new(),
+                | Block::Table { .. }
+                | Block::Html(_) => Vec::new(),
             };
             self.events.extend(fenced);
             let content = lines
@@ -517,7 +779,8 @@ impl<'a> Parser<'a> {
                     | Block::Quote
                     | Block::Heading { .. }
                     | Block::Fence { .. }
-                    | Block::Table { .. } => {}
+                    | Block::Table { .. }
+                    | Block::Html(_) => {}
                 }
                 match open.start {
                     Some(_) => None,
@@ -534,7 +797,8 @@ impl<'a> Parser<'a> {
                 Block::Document
                 | Block::Paragraph { .. }
                 | Block::Fence { .. }
-                | Block::Table { .. } => None,
+                | Block::Table { .. }
+                | Block::Html(_) => None,
                 Block::Quote => {
                     let marker = text[start..].find('>').map(|offset| start + offset);
                     self.events.extend(marker.map(|at| {
@@ -601,6 +865,20 @@ impl<'a> Parser<'a> {
                 ..
             }) => lines.push(span),
             Some(Open {
+                block: Block::Html(ending),
+                ..
+            }) => {
+                let lower = content.to_ascii_lowercase();
+                *ending = match *ending {
+                    Ending::Closer(closers)
+                        if closers.iter().any(|closer| lower.contains(closer)) =>
+                    {
+                        Ending::Finished
+                    }
+                    Ending::BlankLine | Ending::Closer(_) | Ending::Finished => *ending,
+                };
+            }
+            Some(Open {
                 block:
                     Block::Document
                     | Block::List { .. }
@@ -624,7 +902,8 @@ impl<'a> Parser<'a> {
                 | Block::Paragraph { .. }
                 | Block::Heading { .. }
                 | Block::Fence { .. }
-                | Block::Table { .. },
+                | Block::Table { .. }
+                | Block::Html(_),
                 _,
             ) => false,
         };
@@ -691,6 +970,11 @@ impl<'a> Parser<'a> {
                     .trim_start_matches([' ', '\t'])
                     .is_empty()
             });
+        let html = match (html_block(content), LAZY(active)) {
+            (Some(HtmlStart::Interrupting(ending)), _) => Some(ending),
+            (Some(HtmlStart::NotInterrupting), false) => Some(Ending::BlankLine),
+            (Some(HtmlStart::NotInterrupting), true) | (None, _) => None,
+        };
         let markers = |marker: char| content.matches(marker).count();
         let thematic = content.chars().all(|c| "-_* \t".contains(c))
             && [('-', '_', '*'), ('_', '-', '*'), ('*', '-', '_')]
@@ -739,6 +1023,7 @@ impl<'a> Parser<'a> {
                     next.index + length,
                 ))),
             },
+            false if let Some(ending) = html => Ok(Some(Start::Html(ending))),
             false if thematic => Err(Stop::Unsupported),
             false => self.list(matched, paragraph, next, indent),
         }
@@ -858,6 +1143,9 @@ impl<'a> Parser<'a> {
                 }
             }
             (Block::Table { .. }, Space::Blank(_)) => None,
+            (Block::Html(Ending::Finished), _)
+            | (Block::Html(Ending::BlankLine), Space::Blank(_)) => None,
+            (Block::Html(_), _) => Some(Continue::Here),
         };
         let Some(target) = target else {
             return Matched::Count(matches);
@@ -889,7 +1177,7 @@ impl<'a> Parser<'a> {
         let last = self.cursor.index;
         let space = self.space();
         let start = match (matched, space) {
-            (Block::Fence { .. } | Block::Table { .. }, _) => {
+            (Block::Fence { .. } | Block::Table { .. } | Block::Html(_), _) => {
                 return Ok(Outcome {
                     matched,
                     opened,
@@ -937,6 +1225,7 @@ impl<'a> Parser<'a> {
                 self.cursor = self.moved(next, |at| at.index >= index);
                 vec![fence]
             }
+            Start::Html(ending) => vec![Block::Html(ending)],
             Start::Table => {
                 let paragraph = self.open.pop();
                 let span = paragraph.and_then(|mut paragraph| {
@@ -971,7 +1260,8 @@ impl<'a> Parser<'a> {
             | Block::Paragraph { .. }
             | Block::Heading { .. }
             | Block::Fence { .. }
-            | Block::Table { .. } => Ok(Outcome {
+            | Block::Table { .. }
+            | Block::Html(_) => Ok(Outcome {
                 matched,
                 opened: Opened::Blocks,
                 last: self.cursor.index,
@@ -1008,12 +1298,7 @@ impl<'a> Parser<'a> {
             Opened::Blocks => 0,
         };
         match (opened, space, matched, active) {
-            (
-                Opened::Nothing { .. },
-                Space::Content { .. },
-                _,
-                Some(Block::Paragraph { .. } | Block::Table { lazy: true }),
-            ) => {
+            (Opened::Nothing { .. }, Space::Content { .. }, _, _) if LAZY(active) => {
                 self.open
                     .iter_mut()
                     .last()
@@ -1027,7 +1312,8 @@ impl<'a> Parser<'a> {
                 Block::Paragraph { .. }
                 | Block::Heading { .. }
                 | Block::Fence { .. }
-                | Block::Table { .. },
+                | Block::Table { .. }
+                | Block::Html(_),
                 _,
             ) => {
                 self.close(unmatched);
@@ -1172,7 +1458,7 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
             ))
         });
     match (
-        text.contains(['<', '\0', '\u{85}', '\u{2028}', '\u{2029}']),
+        text.contains(['\0', '\u{85}', '\u{2028}', '\u{2029}']),
         parsed,
     ) {
         (true, _) | (false, Err(Stop::NotPorted)) => None,
@@ -1277,11 +1563,7 @@ mod tests {
     #[test]
     fn when_parse_with_a_construct_not_ported_yet_then_returns_none() {
         let cases = [
-            "a <ul> b",
             "`a \u{2028}b`",
-            "[a]: <b>",
-            "[a]: <b",
-            "[a]: <b<c>",
             "- a\n  \t- b",
             "-\ta",
             "-  - a\n    \t- -x",
@@ -1312,6 +1594,10 @@ mod tests {
             "[a]: b\\(c",
             deepest.as_str(),
             "a\n\n[a]: b",
+            "[a]: <b c>",
+            "[a]: <b\\>c>",
+            "[a]: <>",
+            "[a]: <b> \"t\"",
         ];
         for text in cases {
             let positions = parse(text);
@@ -1338,6 +1624,10 @@ mod tests {
             "Text first\n[a]: b",
             "[a]: b)c",
             "[a]: b\tc",
+            "[a]: <b",
+            "[a]: <b<c>",
+            "[a]: <b\nc>",
+            "[a]: <b>c",
             long.as_str(),
             deeper.as_str(),
         ];
@@ -1608,6 +1898,159 @@ mod tests {
             let positions = parse(text);
 
             let expected = Positions(expected.into_iter().collect());
+            assert_eq!(positions, Some(Ok(expected)), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn when_parse_with_an_html_block_then_returns_only_the_paragraphs_around_it() {
+        let quoted = [
+            (0, Kind::MarkdownBlockQuoteOpen, "> "),
+            (7, Kind::MarkdownBlockQuoteClose, ""),
+            (8, Kind::ParagraphOpen, ""),
+            (9, Kind::ParagraphClose, ""),
+        ];
+        let lazy = [
+            (0, Kind::MarkdownBlockQuoteOpen, "> "),
+            (7, Kind::MarkdownBlockQuoteClose, ""),
+        ];
+        let paragraphs = |spans: &[(usize, usize)]| -> Vec<(usize, Kind, &str)> {
+            spans
+                .iter()
+                .flat_map(|&(open, close)| {
+                    [
+                        (open, Kind::ParagraphOpen, ""),
+                        (close, Kind::ParagraphClose, ""),
+                    ]
+                })
+                .collect()
+        };
+        let cases = [
+            ("a\n<div>\nb", paragraphs(&[(0, 1)])),
+            ("<div>\n\nb", paragraphs(&[(7, 8)])),
+            ("<!-- a -->\nb", paragraphs(&[(11, 12)])),
+            ("<!--\n\n-->\nb", paragraphs(&[(10, 11)])),
+            ("<?\n?>\nb", paragraphs(&[(6, 7)])),
+            ("<!A\n>\nb", paragraphs(&[(6, 7)])),
+            ("<![CDATA[\n]]>\nb", paragraphs(&[(14, 15)])),
+            ("<PRE>\n</Pre>\nb", paragraphs(&[(13, 14)])),
+            ("<script\nb", paragraphs(&[])),
+            ("<scripts>\n\nb", paragraphs(&[(11, 12)])),
+            ("a\n<x-y b='1' c=\"2\" d=e f/>\nc", paragraphs(&[(0, 28)])),
+            (
+                "<x-y b='1' c=\"2\" d=e f/>\nc\n\nd",
+                paragraphs(&[(28, 29)]),
+            ),
+            ("</x >\n\nb", paragraphs(&[(7, 8)])),
+            ("<x\n\nb", paragraphs(&[(0, 2), (4, 5)])),
+            ("<x> y", paragraphs(&[(0, 5)])),
+            ("<hr/>\na", paragraphs(&[])),
+            ("<a b='c>\n\nd", paragraphs(&[(0, 8), (10, 11)])),
+            ("<a b=c\u{1}d>\n\ne", paragraphs(&[(0, 9), (11, 12)])),
+            ("a\n</div>\nb", paragraphs(&[(0, 1)])),
+            ("a\n<hr/>\nb", paragraphs(&[(0, 1)])),
+            ("a\n<div class=x>\nb", paragraphs(&[(0, 1)])),
+            ("a\n<div\nb", paragraphs(&[(0, 1)])),
+            ("<!a\nb", paragraphs(&[(0, 5)])),
+            (
+                "a|b\n-|-\n<x>",
+                vec![(0, Kind::MarkdownTable, "a|b\n-|-\n<x>")],
+            ),
+            ("> a\n<x>", lazy.to_vec()),
+            ("> <div>\na", quoted.to_vec()),
+        ];
+        for (text, expected) in cases {
+            let positions = parse(text);
+
+            let expected = Positions(expected.iter().fold(
+                HashMap::new(),
+                |mut positions, &(position, kind, value)| {
+                    positions
+                        .entry(position)
+                        .or_insert_with(Vec::new)
+                        .push(Token::from((kind, value)));
+                    positions
+                },
+            ));
+            assert_eq!(positions, Some(Ok(expected)), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn when_parse_with_inline_html_or_an_autolink_then_returns_no_code_span_inside_it() {
+        let long_scheme = format!("x <{}:`>`", "a".repeat(33));
+        let long_label = format!("x <a`b@{}>`", "c".repeat(64));
+        let cases = [
+            ("x <a b='`'>`", None),
+            ("x <a b = \"`\" c d=e />`", None),
+            ("x <a\nb='`'>`", None),
+            ("x <a b=c\u{1}d e='`'>`", None),
+            ("x <a b='`>`", Some((8, 10))),
+            ("x <a b='c'd='`'>`", Some((13, 16))),
+            ("x <a c='`' b=>`", Some((8, 14))),
+            ("x <?`a`", Some((4, 6))),
+            ("x <!--`a`", Some((6, 8))),
+            ("x <![CDATA[`a`", Some((11, 13))),
+            ("x <!X `a`", Some((6, 8))),
+            ("x <![x`]]>`", Some((6, 10))),
+            ("x <1a:b`>`", Some((7, 9))),
+            (long_scheme.as_str(), Some((37, 39))),
+            ("x <a_b:`>`", Some((7, 9))),
+            ("x <a\"`b@c>`", Some((5, 10))),
+            ("x <a`b@c_d>`", Some((4, 11))),
+            ("x <a b1='`'>`", None),
+            ("x <a _b='`'>`", None),
+            ("x <a b=c\td='`'>`", None),
+            ("x <a`b@c->`", Some((4, 10))),
+            (long_label.as_str(), Some((4, 72))),
+            ("x <a`b>`", Some((4, 7))),
+            ("x <!-- ` -->`", None),
+            ("x <!--->`a`-->", Some((8, 10))),
+            ("x <!-->`a`-->", Some((7, 9))),
+            ("x <!->`a`", Some((6, 8))),
+            ("x <?`?>`", None),
+            ("x <??`?>`", Some((5, 8))),
+            ("x <?a??`?>`", Some((7, 10))),
+            ("x <![CDATA[`]]>`", None),
+            ("x <!X `>`", None),
+            ("x <!X`>`", Some((5, 7))),
+            ("x <!1>`a`", Some((6, 8))),
+            ("x <!", None),
+            ("x <", None),
+            ("x <http://a`b>`", None),
+            ("x <a`b@c.d>`", None),
+            ("x <a`b@-c>`", Some((4, 10))),
+            ("x <a:b`>`", Some((6, 8))),
+            ("x <ab: `>`", Some((7, 9))),
+            ("x <>`a`", Some((4, 6))),
+            ("`<a b='`'>`", Some((0, 7))),
+            ("[a](<b `c>)`", None),
+            ("[a](<b\n`c>)`", Some((7, 11))),
+        ];
+        for (text, span) in cases {
+            let positions = parse(text);
+
+            let tick = |kind: Kind| Token::from((kind, "`"));
+            let edges = [
+                (0, Token::from((Kind::ParagraphOpen, ""))),
+                (text.len(), Token::from((Kind::ParagraphClose, ""))),
+            ];
+            let spans = span.into_iter().flat_map(|(start, end)| {
+                [
+                    (start, tick(Kind::MarkdownCodeSpanStart)),
+                    (end, tick(Kind::MarkdownCodeSpanEnd)),
+                ]
+            });
+            let expected = Positions(edges.into_iter().chain(spans).fold(
+                HashMap::new(),
+                |mut positions, (position, token)| {
+                    positions
+                        .entry(position)
+                        .or_insert_with(Vec::new)
+                        .push(token);
+                    positions
+                },
+            ));
             assert_eq!(positions, Some(Ok(expected)), "{text:?}");
         }
     }

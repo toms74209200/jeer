@@ -318,9 +318,13 @@ pub fn render(
                 writer.continuing_footer_tag = true;
             }
             Kind::ListOpen => {
-                let (before, indent) = match flavor {
-                    Flavor::Classic => (Requested::BlankLine, 2),
-                    Flavor::Markdown(_) => (Requested::None, 0),
+                let before = match flavor {
+                    Flavor::Classic => Requested::BlankLine,
+                    Flavor::Markdown(_) => Requested::None,
+                };
+                let indent = match token.value.is_empty() {
+                    true => 0,
+                    false => 2,
                 };
                 writer.requested = writer.requested.max(before);
                 writer.write_token(token);
