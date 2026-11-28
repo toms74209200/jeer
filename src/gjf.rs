@@ -1081,7 +1081,7 @@ mod tests {
     #[test]
     fn when_format_with_constructs_of_later_tasks_then_returns_deferred() {
         let cases = [
-            "/// a\0\nclass A {}\n",
+            "/// `a \u{2028}b`\nclass A {}\n",
             "class A { <T> @B int f() { return 0; } }\n",
             "class A { void f(A this) {} }\n",
             "class A { int @B [] x; }\n",

@@ -568,8 +568,13 @@ const LEADING: fn(&str, Cursor) -> Cursor = |text, from| {
     }
 };
 
+const ORIGINAL: fn(&[usize], usize) -> usize =
+    |replaced, position| position - 2 * replaced.partition_point(|&at| at < position);
+
 struct Parser<'a> {
     text: &'a str,
+    input: &'a str,
+    replaced: &'a [usize],
     open: Vec<Open>,
     events: Vec<(usize, Token)>,
     line: &'a str,
@@ -642,9 +647,10 @@ impl<'a> Parser<'a> {
                 Block::Paragraph { first: false, .. } => {
                     Some(Token::from((Kind::ParagraphOpen, "")))
                 }
-                Block::Table { .. } => {
-                    Some(Token::from((Kind::MarkdownTable, &self.text[start..end])))
-                }
+                Block::Table { .. } => Some(Token::from((
+                    Kind::MarkdownTable,
+                    &self.input[ORIGINAL(self.replaced, start)..ORIGINAL(self.replaced, end)],
+                ))),
                 Block::Document
                 | Block::List { .. }
                 | Block::Item { .. }
@@ -697,7 +703,11 @@ impl<'a> Parser<'a> {
                     vec![
                         (
                             at,
-                            Token::from((Kind::MarkdownFencedCodeBlock, &text[at..end])),
+                            Token::from((
+                                Kind::MarkdownFencedCodeBlock,
+                                &self.input
+                                    [ORIGINAL(self.replaced, at)..ORIGINAL(self.replaced, end)],
+                            )),
                         ),
                         (
                             at,
@@ -1403,8 +1413,16 @@ fn separator(rest: &str, pipes: usize, valid: bool, columns: usize) -> Option<us
 }
 
 pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
+    let prepared = text.replace('\0', "\u{FFFD}");
+    let replaced: Vec<usize> = text
+        .match_indices('\0')
+        .enumerate()
+        .map(|(count, (at, _))| at + 2 * count)
+        .collect();
     let mut parser = Parser {
-        text,
+        text: &prepared,
+        input: text,
+        replaced: &replaced,
         open: vec![Open {
             block: Block::Document,
             source: 0,
@@ -1422,7 +1440,7 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
             column: 0,
         },
     };
-    let lines = text.split_inclusive('\n').scan(0, |start, line| {
+    let lines = prepared.split_inclusive('\n').scan(0, |start, line| {
         let at = *start;
         *start += line.len();
         Some((at, line.strip_suffix('\n').unwrap_or(line)))
@@ -1450,17 +1468,14 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
                 HashMap::new(),
                 |mut positions, (position, token)| {
                     positions
-                        .entry(position)
+                        .entry(ORIGINAL(&replaced, position))
                         .or_insert_with(Vec::new)
                         .push(token);
                     positions
                 },
             ))
         });
-    match (
-        text.contains(['\0', '\u{85}', '\u{2028}', '\u{2029}']),
-        parsed,
-    ) {
+    match (text.contains(['\u{85}', '\u{2028}', '\u{2029}']), parsed) {
         (true, _) | (false, Err(Stop::NotPorted)) => None,
         (false, Ok(positions)) => Some(Ok(positions)),
         (false, Err(Stop::Unsupported)) => Some(Err(Unsupported)),
@@ -1567,7 +1582,6 @@ mod tests {
             "- a\n  \t- b",
             "-\ta",
             "-  - a\n    \t- -x",
-            "a\0",
             "~~~ a&amp;b",
         ];
         for text in cases {
@@ -2053,5 +2067,106 @@ mod tests {
             ));
             assert_eq!(positions, Some(Ok(expected)), "{text:?}");
         }
+    }
+
+    #[test]
+    fn when_parse_with_a_null_character_then_returns_positions_in_the_original_text() {
+        let token = |kind: Kind, value: &str| Token::from((kind, value));
+        let cases = [
+            (
+                "a\0`b`",
+                vec![
+                    (0, vec![token(Kind::ParagraphOpen, "")]),
+                    (2, vec![token(Kind::MarkdownCodeSpanStart, "`")]),
+                    (4, vec![token(Kind::MarkdownCodeSpanEnd, "`")]),
+                    (5, vec![token(Kind::ParagraphClose, "")]),
+                ],
+            ),
+            (
+                "\0\n```\0\n\0\n```",
+                vec![
+                    (0, vec![token(Kind::ParagraphOpen, "")]),
+                    (1, vec![token(Kind::ParagraphClose, "")]),
+                    (
+                        2,
+                        vec![
+                            token(Kind::MarkdownFencedCodeBlock, "```\0\n\0\n```"),
+                            token(Kind::FenceStart, "```\u{FFFD}"),
+                            token(Kind::FenceLiteral, "\u{FFFD}\n"),
+                            token(Kind::FenceEnd, "```"),
+                        ],
+                    ),
+                ],
+            ),
+            (
+                "\0\n\n\0",
+                vec![
+                    (0, vec![token(Kind::ParagraphOpen, "")]),
+                    (1, vec![token(Kind::ParagraphClose, "")]),
+                    (3, vec![token(Kind::ParagraphOpen, "")]),
+                    (4, vec![token(Kind::ParagraphClose, "")]),
+                ],
+            ),
+            (
+                "\0\0\0\0`a`",
+                vec![
+                    (0, vec![token(Kind::ParagraphOpen, "")]),
+                    (4, vec![token(Kind::MarkdownCodeSpanStart, "`")]),
+                    (6, vec![token(Kind::MarkdownCodeSpanEnd, "`")]),
+                    (7, vec![token(Kind::ParagraphClose, "")]),
+                ],
+            ),
+            (
+                "| \0 |\n|---|\n\na",
+                vec![
+                    (0, vec![token(Kind::MarkdownTable, "| \0 |\n|---|")]),
+                    (13, vec![token(Kind::ParagraphOpen, "")]),
+                    (14, vec![token(Kind::ParagraphClose, "")]),
+                ],
+            ),
+            (
+                "\0\n\n| a |\n|---|",
+                vec![
+                    (0, vec![token(Kind::ParagraphOpen, "")]),
+                    (1, vec![token(Kind::ParagraphClose, "")]),
+                    (3, vec![token(Kind::MarkdownTable, "| a |\n|---|")]),
+                ],
+            ),
+            (
+                "```\0\n```\na",
+                vec![
+                    (
+                        0,
+                        vec![
+                            token(Kind::MarkdownFencedCodeBlock, "```\0\n```"),
+                            token(Kind::FenceStart, "```\u{FFFD}"),
+                            token(Kind::FenceLiteral, ""),
+                            token(Kind::FenceEnd, "```"),
+                        ],
+                    ),
+                    (9, vec![token(Kind::ParagraphOpen, "")]),
+                    (10, vec![token(Kind::ParagraphClose, "")]),
+                ],
+            ),
+            (
+                "| \0 |\n|---|",
+                vec![(0, vec![token(Kind::MarkdownTable, "| \0 |\n|---|")])],
+            ),
+        ];
+        for (text, expected) in cases {
+            let positions = parse(text);
+
+            let expected = Positions(expected.into_iter().collect());
+            assert_eq!(positions, Some(Ok(expected)), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn when_parse_with_a_null_character_in_a_link_label_then_returns_unsupported() {
+        let text = "[\0]: b";
+
+        let positions = parse(text);
+
+        assert_eq!(positions, Some(Err(Unsupported)));
     }
 }
