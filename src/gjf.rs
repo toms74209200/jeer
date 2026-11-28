@@ -19,7 +19,7 @@ use visitor::Visitor;
 use crate::lexer::token::TokenClass;
 use crate::parser::syntax::{Element, Node};
 use crate::parser::{self, Unit};
-use crate::pipeline::{Position, Rejection};
+use crate::pipeline::{self, Located, Position, Rejection};
 use crate::steps;
 
 fn significant(node: &Node) -> Node {
@@ -55,8 +55,20 @@ pub fn step(options: Options) -> impl Fn(&str) -> Result<String, Rejection> {
         })?;
         match format(text, &unit) {
             Ok(formatted) => {
-                let ordered = steps::unused_imports::apply(&formatted)
-                    .and_then(|used| imports::reorder(&used))?;
+                let ordered = pipeline::compose(vec![
+                    Box::new(steps::unused_imports::apply),
+                    Box::new(imports::reorder),
+                ])(&formatted)
+                .map_err(
+                    |Located {
+                         line,
+                         column,
+                         message,
+                     }| Rejection {
+                        position: Position::LineColumn { line, column },
+                        message,
+                    },
+                )?;
                 match reflow_long_strings {
                     true => settle(text, reflow_strings(&ordered)),
                     false => Ok(ordered),
@@ -1128,6 +1140,28 @@ mod tests {
                 ),
                 include_str!(
                     "../tests/fixtures/gjf/reject-identifier-expected-in-parameters/expected.error"
+                ),
+            ),
+            (
+                include_str!("../tests/fixtures/gjf/reject-reparse-fence-info-newline/input.java"),
+                include_str!(
+                    "../tests/fixtures/gjf/reject-reparse-fence-info-newline/expected.error"
+                ),
+            ),
+            (
+                include_str!(
+                    "../tests/fixtures/gjf/reject-reparse-fence-info-line-feed/input.java"
+                ),
+                include_str!(
+                    "../tests/fixtures/gjf/reject-reparse-fence-info-line-feed/expected.error"
+                ),
+            ),
+            (
+                include_str!(
+                    "../tests/fixtures/gjf/reject-reparse-fence-info-carriage-return/input.java"
+                ),
+                include_str!(
+                    "../tests/fixtures/gjf/reject-reparse-fence-info-carriage-return/expected.error"
                 ),
             ),
             (
