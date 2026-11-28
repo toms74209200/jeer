@@ -379,6 +379,62 @@ fn unescape(text: &str) -> Vec<u16> {
         .collect()
 }
 
+const PASS: fn(&[u16]) -> Vec<u16> = |units| {
+    let start = units
+        .iter()
+        .position(|&unit| unit > 0x20)
+        .unwrap_or(units.len());
+    let end = units
+        .iter()
+        .rposition(|&unit| unit > 0x20)
+        .map_or(start, |at| at + 1);
+    let (decoded, pending) = char::decode_utf16(units[start..end].iter().copied()).fold(
+        (Vec::new(), String::new()),
+        |(decoded, pending): (Vec<u16>, String), unit| match unit {
+            Ok(c) => (decoded, format!("{pending}{c}")),
+            Err(lone) => (
+                [decoded, unescape(&pending), vec![lone.unpaired_surrogate()]].concat(),
+                String::new(),
+            ),
+        },
+    );
+    [decoded, unescape(&pending)].concat()
+};
+
+const SPOTLESS_RUNS: usize = 10;
+
+fn fence_info(info: &str, character: char) -> Result<String, Stop> {
+    let first = PASS(&info.encode_utf16().collect::<Vec<u16>>());
+    let ends_line = |units: &[u16]| units.iter().any(|unit| [0x0A, 0x0D].contains(unit));
+    let passes: Vec<Vec<u16>> = std::iter::successors(Some(first), |units| {
+        let next = PASS(units);
+        (!ends_line(units) && next != *units).then_some(next)
+    })
+    .collect();
+    let last = &passes[passes.len() - 1];
+    let lone = passes
+        .iter()
+        .any(|units| char::decode_utf16(units.iter().copied()).any(|unit| unit.is_err()));
+    let written = match lone {
+        true => last,
+        false => &passes[0],
+    };
+    let escaped = written.iter().enumerate().any(|(at, &unit)| {
+        unit == 0x5C
+            && char::decode_utf16(written[at + 1..].iter().copied())
+                .next()
+                .is_some_and(|next| next.is_err())
+    });
+    let backtick = character == '`' && passes.iter().any(|units| units.contains(&0x60));
+    let later = backtick || (lone && (ends_line(last) || passes.len() >= SPOTLESS_RUNS)) || escaped;
+    match later {
+        true => Err(Stop::NotPorted),
+        false => Ok(char::decode_utf16(written.iter().copied())
+            .map(|unit| unit.unwrap_or('?'))
+            .collect()),
+    }
+}
+
 fn definition(state: Definition, rest: &str) -> Definition {
     let failed = (Definition::Paragraph, "");
     let (next, rest) = match (state, rest.is_empty()) {
@@ -568,6 +624,7 @@ enum Block {
         length: usize,
         indent: usize,
         closing: Option<usize>,
+        info: usize,
     },
     Table {
         lazy: bool,
@@ -625,6 +682,7 @@ struct Parser<'a> {
     text: &'a str,
     input: &'a str,
     replaced: &'a [usize],
+    infos: Vec<String>,
     open: Vec<Open>,
     events: Vec<(usize, Token)>,
     line: &'a str,
@@ -635,7 +693,7 @@ struct Parser<'a> {
 enum Start {
     Blocks(Vec<Block>, usize),
     Heading(usize),
-    Fence(Block, usize),
+    Fence(Block, usize, String),
     Html(Ending),
     Table,
 }
@@ -729,12 +787,11 @@ impl<'a> Parser<'a> {
                     length,
                     indent,
                     closing,
+                    info,
                 } => {
                     let at = open.start.unwrap_or(end) + indent;
-                    let first = open.lines.first().copied().unwrap_or((at, at));
                     let rest = open.lines.get(1..).unwrap_or(&[]);
-                    let info = text[first.0..first.1].trim_matches(|c: char| c <= ' ');
-                    let unescaped = String::from_utf16_lossy(&unescape(info));
+                    let unescaped = &self.infos[info];
                     let literal: String = rest
                         .iter()
                         .map(|&(from, to)| format!("{}\n", &text[from..to]))
@@ -753,7 +810,7 @@ impl<'a> Parser<'a> {
                             at,
                             Token {
                                 kind: Kind::FenceStart,
-                                value: fence(length) + &unescaped,
+                                value: fence(length) + unescaped,
                             },
                         ),
                         (
@@ -1062,24 +1119,18 @@ impl<'a> Parser<'a> {
             }
             false if paragraph && underline => Err(Stop::Unsupported),
             false if let Some((character, length, info)) = fence => {
-                let later = std::iter::successors(Some(Some(info.to_owned())), |text| {
-                    let text = text.as_ref()?;
-                    let next = String::from_utf16(&unescape(text)).ok();
-                    (next.as_ref() != Some(text)).then_some(next)
-                })
-                .any(|text| text.is_none_or(|text| character == '`' && text.contains('`')));
-                match later {
-                    true => Err(Stop::NotPorted),
-                    false => Ok(Some(Start::Fence(
-                        Block::Fence {
-                            character,
-                            length,
-                            indent,
-                            closing: None,
-                        },
-                        next.index + length,
-                    ))),
-                }
+                let info = fence_info(info, character)?;
+                Ok(Some(Start::Fence(
+                    Block::Fence {
+                        character,
+                        length,
+                        indent,
+                        closing: None,
+                        info: self.infos.len(),
+                    },
+                    next.index + length,
+                    info,
+                )))
             }
             false if let Some(ending) = html => Ok(Some(Start::Html(ending))),
             false if thematic => Err(Stop::Unsupported),
@@ -1171,6 +1222,7 @@ impl<'a> Parser<'a> {
                     character,
                     length,
                     indent: fence,
+                    info,
                     ..
                 },
                 Space::Content { next, indent },
@@ -1185,6 +1237,7 @@ impl<'a> Parser<'a> {
                         length,
                         indent: fence,
                         closing: Some(fences),
+                        info,
                     })),
                     false => Some(Continue::Spaces(fence)),
                 }
@@ -1279,8 +1332,9 @@ impl<'a> Parser<'a> {
                 self.cursor = self.moved(next, |_| false);
                 vec![Block::Heading { inline }]
             }
-            Start::Fence(fence, index) => {
+            Start::Fence(fence, index, info) => {
                 self.cursor = self.moved(next, |at| at.index >= index);
+                self.infos.push(info);
                 vec![fence]
             }
             Start::Html(ending) => vec![Block::Html(ending)],
@@ -1471,6 +1525,7 @@ pub fn parse(text: &str) -> Option<Result<Positions, Unsupported>> {
         text: &prepared,
         input: text,
         replaced: &replaced,
+        infos: Vec::new(),
         open: vec![Open {
             block: Block::Document,
             source: 0,
@@ -1625,13 +1680,13 @@ mod tests {
 
     #[test]
     fn when_parse_with_a_construct_not_ported_yet_then_returns_none() {
+        let ten_runs = format!("```a&#xDE00;&{}b", "amp;".repeat(10));
         let cases = [
             "`a \u{2028}b`",
-            "```a&#xDE00;b",
-            "```a&#xD83D;&amp;#xDE00;b",
-            "```a&amp;#xDE00;b",
-            "```a&amp;amp;#xDE00;b",
-            "```a&amp;#xD83D;&amp;amp;#xDE00;b",
+            "```a&#xDE00;&amp;NewLine;b",
+            "```a&#xDE00;&amp;#13;b",
+            "```a&#92;&#xDE00;b",
+            ten_runs.as_str(),
             "```a &#96;a &#x2028;b&#96;",
             "- a\n  \t- b",
             "-\ta",
@@ -2237,6 +2292,7 @@ mod tests {
 
     #[test]
     fn when_parse_with_a_fence_info_holding_escapes_or_entities_then_returns_it_decoded() {
+        let nine_runs = format!("a&#xDE00;&{}b", "amp;".repeat(9));
         let cases = [
             ("a&amp;b", "a&b"),
             ("a&AMP;b", "a&b"),
@@ -2256,6 +2312,15 @@ mod tests {
             ("a&#x;b", "a&#x;b"),
             ("a&#65b", "a&#65b"),
             ("a&#xD83D;&#xDE00;b", "a\u{1F600}b"),
+            ("a&#xDE00;b", "a?b"),
+            ("a&#xD83D;&amp;#xDE00;b", "a\u{1F600}b"),
+            ("a&amp;#xDE00;b", "a?b"),
+            ("a&amp;amp;#xDE00;b", "a?b"),
+            ("a&amp;#xD83D;&amp;amp;#xDE00;b", "a\u{1F600}b"),
+            ("&#xDE00;&amp;#32;", "?"),
+            ("&amp;#32;&#xDE00;", "?"),
+            (nine_runs.as_str(), "a?&b"),
+            ("a&#10;int y; //&amp;#xDE00;", "a\nint y; //&#xDE00;"),
             ("a&frac12;b", "a\u{BD}b"),
             ("a\\&amp;b", "a&amp;b"),
             ("a\\\\&amp;b", "a\\&b"),
