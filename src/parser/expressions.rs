@@ -103,7 +103,7 @@ impl Parser<'_> {
                             if self.kind(0) == TokenKind::Punct(Punct::Ellipsis) {
                                 self.bump(&mut parameter);
                             }
-                            self.expect_identifier(&mut parameter)?;
+                            self.expect_identifier(&mut parameter, Self::fail)?;
                             self.dimensions(&mut parameter)?;
                             parameters.push(Element::Node(Node {
                                 kind: NodeKind::FormalParameter,
@@ -185,7 +185,7 @@ impl Parser<'_> {
                             | TokenKind::Keyword(Keyword::Underscore)
                             | TokenKind::Punct(Punct::LParen),
                         ) => {
-                            children.push(self.pattern()?);
+                            children.push(self.pattern(Self::missing)?);
                         }
                         _ => {
                             self.modifiers(&mut children)?;
@@ -526,7 +526,7 @@ impl Parser<'_> {
                     if self.kind(0) == TokenKind::Punct(Punct::Lt) {
                         children.push(self.type_arguments()?);
                     }
-                    self.expect_identifier(&mut children)?;
+                    self.expect_identifier(&mut children, Self::missing)?;
                     match self.kind(0) {
                         TokenKind::Punct(Punct::LParen) => {
                             children.push(self.arguments()?);
@@ -559,7 +559,7 @@ impl Parser<'_> {
                     }
                     match self.kind(0) {
                         TokenKind::Keyword(Keyword::New) => self.bump(&mut children),
-                        _ => self.expect_identifier(&mut children)?,
+                        _ => self.expect_identifier(&mut children, Self::missing)?,
                     }
                     Element::Node(Node {
                         kind: NodeKind::MethodReference,

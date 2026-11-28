@@ -100,12 +100,16 @@ impl Parser<'_> {
     }
 
     fn missing<T>(&self, expected: &str) -> Result<T, ParseError> {
-        let offset = self
-            .pos
-            .checked_sub(1)
-            .and_then(|previous| self.significant.get(previous))
-            .and_then(|&index| self.tokens.get(index))
-            .map_or(0, |token| token.end);
+        let offset = self.split.map_or_else(
+            || {
+                self.pos
+                    .checked_sub(1)
+                    .and_then(|previous| self.significant.get(previous))
+                    .and_then(|&index| self.tokens.get(index))
+                    .map_or(0, |token| token.end)
+            },
+            |rest| rest.start,
+        );
         Err(ParseError {
             offset,
             message: expected.to_owned(),
@@ -143,13 +147,17 @@ impl Parser<'_> {
         }
     }
 
-    fn expect_identifier(&mut self, out: &mut Vec<Element>) -> Result<(), ParseError> {
+    fn expect_identifier(
+        &mut self,
+        out: &mut Vec<Element>,
+        absent: fn(&Self, &str) -> Result<(), ParseError>,
+    ) -> Result<(), ParseError> {
         match self.kind(0) {
             TokenKind::Identifier | TokenKind::Keyword(Keyword::Underscore) => {
                 self.bump(out);
                 Ok(())
             }
-            _ => self.fail("<identifier> expected"),
+            _ => absent(self, "<identifier> expected"),
         }
     }
 
@@ -196,7 +204,7 @@ impl Parser<'_> {
 
     fn qualified_name(&mut self) -> Parsed {
         let mut children = Vec::new();
-        self.expect_identifier(&mut children)?;
+        self.expect_identifier(&mut children, Self::missing)?;
         while let (TokenKind::Punct(Punct::Dot), TokenKind::Identifier) =
             (self.kind(0), self.kind(1))
         {
@@ -282,7 +290,7 @@ impl Parser<'_> {
             (TokenKind::Identifier, "module", TokenKind::Identifier) => self.bump(&mut children),
             _ => {}
         }
-        self.expect_identifier(&mut children)?;
+        self.expect_identifier(&mut children, Self::missing)?;
         loop {
             match (self.kind(0), self.kind(1)) {
                 (TokenKind::Punct(Punct::Dot), TokenKind::Identifier) => {
@@ -630,8 +638,35 @@ import a.B;"#,
             (r#"class A { void f() { switch (x) { case 1 x(); } } }"#, 41),
             (r#"class A { void f() { switch (x) { foo; } } }"#, 34),
             (r#"class A { void f() { switch (x) { case 1: f(); "#, 46),
-            (r#"class 1 {}"#, 6),
-            (r#"@ int x;"#, 2),
+            (r#"class 1 {}"#, 5),
+            ("class A {\n  int /* c\n  */ ;\n}", 15),
+            ("class A { void f() { a.<T\n>>b(); } }", 27),
+            (
+                "class A {\n  boolean f() {\n    return o instanceof R(int\n    );\n  }\n}",
+                55,
+            ),
+            (
+                "class A {\n  boolean f() {\n    return o instanceof R(S(int\n    ));\n  }\n}",
+                57,
+            ),
+            (
+                "class A {\n  boolean f() {\n    return o instanceof R(int a, int // c\n    );\n  }\n}",
+                62,
+            ),
+            ("enum E {\n  A\n  1\n}", 12),
+            ("class A { void f() { try {} catch (E\n) {} } }", 36),
+            ("enum E { @X\n1 }", 11),
+            ("enum E {\n1 }", 9),
+            ("class A { void f() { a.\n; } }", 23),
+            ("import\n;", 6),
+            ("class A { void\n() {} }", 14),
+            ("package\n;", 7),
+            ("class A { void f(int\n) {} }", 20),
+            ("record R(int\n) {}", 12),
+            ("class A { void f() { g(a::\n); } }", 26),
+            ("class\n{}", 5),
+            ("class A<\n> {}", 8),
+            (r#"@ int x;"#, 1),
             (r#"class A<T> { List<T x; }"#, 20),
             (r#"class A { int x = <T>; }"#, 21),
             (r#"class A { void f() { a = new int[1][ ; } }"#, 37),

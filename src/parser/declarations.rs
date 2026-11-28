@@ -205,7 +205,7 @@ impl Parser<'_> {
                             kind: NodeKind::VoidType,
                             children: void,
                         }));
-                        self.expect_identifier(&mut children)?;
+                        self.expect_identifier(&mut children, Self::missing)?;
                         self.method_rest(children, NodeKind::MethodDecl)
                     }
                     _ => {
@@ -269,7 +269,7 @@ impl Parser<'_> {
     ) -> Result<(), super::ParseError> {
         loop {
             let mut declarator = Vec::new();
-            self.expect_identifier(&mut declarator)?;
+            self.expect_identifier(&mut declarator, Self::missing)?;
             self.dimensions(&mut declarator)?;
             if self.kind(0) == TokenKind::Punct(Punct::Assign) {
                 self.bump(&mut declarator);
@@ -325,7 +325,7 @@ impl Parser<'_> {
             _ => return self.fail("class, interface, enum, or record expected"),
         };
         self.bump(&mut children);
-        self.expect_identifier(&mut children)?;
+        self.expect_identifier(&mut children, Self::missing)?;
         if self.kind(0) == TokenKind::Punct(Punct::Lt) {
             children.push(self.type_parameters()?);
         }
@@ -384,8 +384,13 @@ impl Parser<'_> {
                 TokenKind::Punct(Punct::Semicolon | Punct::RBrace) => break,
                 _ => {
                     let mut constant = Vec::new();
+                    let unannotated = self.pos;
                     self.modifiers(&mut constant)?;
-                    self.expect_identifier(&mut constant)?;
+                    let absent = match self.pos == unannotated {
+                        true => Self::fail,
+                        false => Self::missing,
+                    };
+                    self.expect_identifier(&mut constant, absent)?;
                     if self.kind(0) == TokenKind::Punct(Punct::LParen) {
                         constant.push(self.arguments()?);
                     }
@@ -396,6 +401,11 @@ impl Parser<'_> {
                         kind: NodeKind::EnumConstant,
                         children: constant,
                     }));
+                    match self.kind(0) {
+                        TokenKind::Punct(Punct::Comma | Punct::Semicolon | Punct::RBrace)
+                        | TokenKind::Eof => {}
+                        _ => return self.missing("',', '}', or ';' expected"),
+                    }
                 }
             }
         }
@@ -426,7 +436,7 @@ impl Parser<'_> {
             if self.kind(0) == TokenKind::Punct(Punct::Ellipsis) {
                 self.bump(&mut component);
             }
-            self.expect_identifier(&mut component)?;
+            self.expect_identifier(&mut component, Self::missing)?;
             children.push(Element::Node(Node {
                 kind: NodeKind::RecordComponent,
                 children: component,
@@ -449,7 +459,7 @@ impl Parser<'_> {
         loop {
             let mut parameter = Vec::new();
             self.modifiers(&mut parameter)?;
-            self.expect_identifier(&mut parameter)?;
+            self.expect_identifier(&mut parameter, Self::missing)?;
             if self.kind(0) == TokenKind::Keyword(Keyword::Extends) {
                 let mut bound = Vec::new();
                 self.bump(&mut bound);
@@ -508,7 +518,7 @@ impl Parser<'_> {
                     if self.kind(0) == TokenKind::Punct(Punct::Ellipsis) {
                         self.bump(&mut parameter);
                     }
-                    self.expect_identifier(&mut parameter)?;
+                    self.expect_identifier(&mut parameter, Self::missing)?;
                     self.dimensions(&mut parameter)?;
                     NodeKind::FormalParameter
                 }

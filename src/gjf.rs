@@ -1099,6 +1099,38 @@ mod tests {
     fn when_gjf_pipeline_with_oracle_rejected_fixtures_then_returns_the_oracle_line() {
         let cases = [
             (
+                include_str!(
+                    "../tests/fixtures/gjf/reject-identifier-expected-after-newline/input.java"
+                ),
+                include_str!(
+                    "../tests/fixtures/gjf/reject-identifier-expected-after-newline/expected.error"
+                ),
+            ),
+            (
+                include_str!(
+                    "../tests/fixtures/gjf/reject-identifier-expected-after-comment/input.java"
+                ),
+                include_str!(
+                    "../tests/fixtures/gjf/reject-identifier-expected-after-comment/expected.error"
+                ),
+            ),
+            (
+                include_str!(
+                    "../tests/fixtures/gjf/reject-identifier-expected-after-block-comment/input.java"
+                ),
+                include_str!(
+                    "../tests/fixtures/gjf/reject-identifier-expected-after-block-comment/expected.error"
+                ),
+            ),
+            (
+                include_str!(
+                    "../tests/fixtures/gjf/reject-identifier-expected-in-parameters/input.java"
+                ),
+                include_str!(
+                    "../tests/fixtures/gjf/reject-identifier-expected-in-parameters/expected.error"
+                ),
+            ),
+            (
                 include_str!("../tests/fixtures/gjf/reject-missing-semicolon/input.java"),
                 include_str!("../tests/fixtures/gjf/reject-missing-semicolon/expected.error"),
             ),

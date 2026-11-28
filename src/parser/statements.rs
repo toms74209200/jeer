@@ -300,13 +300,13 @@ impl Parser<'_> {
         self.expect(TokenKind::Punct(Punct::LParen), &mut children)?;
         let each = self.probe(|p| {
             let mut ignored = p.local_variable_head()?;
-            p.expect_identifier(&mut ignored)?;
+            p.expect_identifier(&mut ignored, Self::missing)?;
             p.dimensions(&mut ignored)?;
             Ok(p.kind(0))
         });
         if let Ok(TokenKind::Punct(Punct::Colon)) = each {
             let mut variable = self.local_variable_head()?;
-            self.expect_identifier(&mut variable)?;
+            self.expect_identifier(&mut variable, Self::missing)?;
             self.dimensions(&mut variable)?;
             children.push(Element::Node(Node {
                 kind: NodeKind::LocalVariableDecl,
@@ -381,7 +381,7 @@ impl Parser<'_> {
                 let resource = match self.statement_kind() {
                     Statement::LocalVariable => {
                         let mut resource = self.local_variable_head()?;
-                        self.expect_identifier(&mut resource)?;
+                        self.expect_identifier(&mut resource, Self::missing)?;
                         self.expect(TokenKind::Punct(Punct::Assign), &mut resource)?;
                         resource.push(self.expression()?);
                         resource
@@ -418,7 +418,7 @@ impl Parser<'_> {
                 kind: NodeKind::CatchType,
                 children: types,
             }));
-            self.expect_identifier(&mut catch)?;
+            self.expect_identifier(&mut catch, Self::missing)?;
             self.expect(TokenKind::Punct(Punct::RParen), &mut catch)?;
             catch.push(self.block()?);
             children.push(Element::Node(Node {
@@ -546,12 +546,12 @@ impl Parser<'_> {
                 TokenKind::Identifier
                 | TokenKind::Keyword(Keyword::Underscore)
                 | TokenKind::Punct(Punct::LParen),
-            ) => self.pattern(),
+            ) => self.pattern(Self::fail),
             _ => self.conditional_expression(),
         }
     }
 
-    pub(super) fn pattern(&mut self) -> Parsed {
+    pub(super) fn pattern(&mut self, absent: fn(&Self, &str) -> Result<(), ParseError>) -> Parsed {
         if let (
             TokenKind::Keyword(Keyword::Underscore),
             TokenKind::Punct(Punct::Comma | Punct::RParen),
@@ -571,7 +571,7 @@ impl Parser<'_> {
             TokenKind::Punct(Punct::LParen) => {
                 self.bump(&mut children);
                 while self.kind(0) != TokenKind::Punct(Punct::RParen) {
-                    children.push(self.pattern()?);
+                    children.push(self.pattern(absent)?);
                     match self.kind(0) {
                         TokenKind::Punct(Punct::Comma) => self.bump(&mut children),
                         _ => break,
@@ -584,7 +584,7 @@ impl Parser<'_> {
                 }))
             }
             _ => {
-                self.expect_identifier(&mut children)?;
+                self.expect_identifier(&mut children, absent)?;
                 Ok(Element::Node(Node {
                     kind: NodeKind::TypePattern,
                     children,
